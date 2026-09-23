@@ -1,0 +1,12 @@
+{
+  "name": "dsh-recon",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Source recon for dsh agent-loop replaceability (spike)",
+  "overrides": {
+    "@deepseek-ai/dsh-client-ui-sidebar-documentpreview": "0.1.5-rc.2"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.1.5-alpha.2"
+  }
+}

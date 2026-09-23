@@ -1,0 +1,23 @@
+# ==== 隐私/凭据（绝不入库）====
+dsh-home/
+# dsh-home 含：.credentials.yaml（登录凭据）、会话记录（个人对话）、用户 ID
+
+# ==== 依赖树与二进制（体积）====
+node_modules/
+**/node_modules/
+*.tgz
+
+# ==== 沙箱修复期的临时产物 ====
+fix-ajv/
+fix-pi/
+fix-yaml/
+zod-fix/
+install-log.txt
+spike-direct-cli.txt
+*.log
+dsh-recon/*log*.txt
+dsh-recon/nm-listing.txt
+
+# ==== 系统杂项 ====
+.DS_Store
+Thumbs.db

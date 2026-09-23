@@ -1,0 +1,16 @@
+{
+  "name": "dsh-buddy-loop",
+  "version": "0.1.0",
+  "description": "CodeBuddy-powered replacement driver for dsh's agent-loop (the 'heart transplant' plugin)",
+  "type": "module",
+  "main": "lib/index.js",
+  "license": "MIT",
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-agent": "^0.1.5-alpha.2",
+    "@deepseek-ai/dsh-llm": "^0.1.5-alpha.2",
+    "@deepseek-ai/dsh-scope": "^0.1.5-alpha.2",
+    "@deepseek-ai/dsh-session": "^0.1.5-alpha.2",
+    "@tencent-ai/agent-sdk": "^0.1.0"
+  }
+}

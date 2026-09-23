@@ -1,0 +1,28 @@
+{
+  "name": "dsh-buddy",
+  "version": "1.0.0",
+  "description": "Heart-transplant plugin for dsh (DeepSeek Harness): replace the stock agent-loop with CodeBuddy CLI as the single brain. Powered by @tencent-ai/agent-sdk — Tencent plan quota only, zero DeepSeek tokens.",
+  "type": "module",
+  "main": "lib/index.js",
+  "license": "MIT",
+  "bin": {
+    "dsh-buddy-install": "./install.mjs"
+  },
+  "scripts": {
+    "install": "node install.mjs"
+  },
+  "dependencies": {
+    "@tencent-ai/agent-sdk": "^0.1.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.0",
+    "@deepseek-ai/dsh-agent": ">=0.1.4",
+    "@deepseek-ai/dsh-llm": ">=0.1.4",
+    "@deepseek-ai/dsh-scope": ">=0.1.4",
+    "@deepseek-ai/dsh-session": ">=0.1.4",
+    "@deepseek-ai/schemastery": ">=3.18.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,46 @@
+# buddy overlay — swap dsh's default agent-loop for the CodeBuddy-driven factory.
+#
+# Patch semantics (cordis-plugin-include applyEntryPatches):
+#   - a non-insert patch ASSIGNS fields onto the row addressed by `id`; it
+#     cannot rename a row — a `name` differing from the target row's name is
+#     skipped with a loader warning ("name mismatch ... skipping"). The first
+#     attempt of this overlay silently no-op'd exactly because of that.
+#   - `insert` (without id) appends new rows to the root list; inserted rows
+#     are indexed, so later patch layers can address them.
+#
+# Heart transplant, correct form: disable the stock DeepSeek-driven row, then
+# insert a sibling row mounting dsh-buddy-loop, which provides the same
+# 'agentLoop' service dsh-agent resolves when creating agents (Stage 1 proved
+# the consumer side works with our factory).
+
+# 1. Stock loop: disabled (row keeps its name — no mismatch, applies cleanly).
+- id: agent-loop
+  disabled: true
+
+# 2. CodeBuddy-driven loop as its own row. Every session the web UI creates is
+#    then driven by @tencent-ai/agent-sdk through the codebuddy CLI login —
+#    Tencent plan quota only, DeepSeek untouched.
+#
+#    name is a patch-relative path on purpose: the loader imports bare package
+#    names anchored at the PROFILE dir (dsh-home/profiles/web), whose node_modules
+#    walk never reaches dsh-recon — so 'dsh-buddy-loop' cannot resolve there.
+#    anchorInsertedPluginNames rewrites './...' names to absolute file URLs
+#    beside THIS patch file; buddy-loop's own deps resolve through its
+#    node_modules junction into dsh-recon.
+- insert:
+    - id: buddy-loop
+      name: ./buddy-loop/lib/index.js
+      config:
+        buddyMaxTurns: 30
+        agents: []
+
+# 3. pi-ai stays unmounted: dormant in base (zero routes without a settings
+#    section) and its dependency closure is not installed in this workspace —
+#    keep the loader from importing it at all.
+- id: llm-pi-ai
+  disabled: true
+
+# 4. Session titling calls the DeepSeek adapter; without an API key it only
+#    produces error noise.
+- id: session-title-llm
+  disabled: true
