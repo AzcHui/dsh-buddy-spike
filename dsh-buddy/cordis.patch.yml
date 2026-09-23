@@ -1,0 +1,31 @@
+# dsh-buddy bundle patch — 用 CodeBuddy 替换 dsh 默认 agent-loop。
+#
+# 本文件由 dsh 在 profile 组层时应用（package.json 的 dsh.bundle.patch 指向它）。
+# 层顺序：bundles 按加入序（先 @deepseek-ai/dsh-base）→ 本层随包生效。
+#
+# 语义要点（详见 docs/user/develop/basic/publish.zh.md）：
+#   - patch 不能换名（name mismatch 整行静默 skip），所以禁用旧行 + insert 新行
+#   - 后应用的层按行胜出；config 是整行替换不是深度合并
+#   - name 用裸包名：bundle 已装入 profile 的 node_modules，
+#     Node 解析从 profile 目录逐级向上自然可达（@deepseek-ai/* 由
+#     dsh 维护的 $DSH_HOME/profiles/node_modules 后备目录兜底，cordis 单例无忧）
+
+# 1. 原生 DeepSeek 驱动器下岗
+- id: agent-loop
+  disabled: true
+
+# 2. CodeBuddy 驱动器上岗（服务名同为 agentLoop，消费者无感）
+- insert:
+    - id: buddy-loop
+      name: dsh-buddy
+      config:
+        buddyMaxTurns: 30
+        agents: []
+
+# 3. pi-ai 依赖闭包巨大且休眠，不挂载
+- id: llm-pi-ai
+  disabled: true
+
+# 4. 会话标题生成走 DeepSeek 适配器，没 key 只会报错噪音
+- id: session-title-llm
+  disabled: true

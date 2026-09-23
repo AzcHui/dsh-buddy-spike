@@ -25,32 +25,38 @@ dsh Web UI ──会话/事件──▶ BuddyLoop（本仓库插件，服务名 
 
 | 路径 | 内容 |
 |---|---|
-| `dsh-buddy/` | ⭐ **可直接分发的插件包**：`install.mjs` 自动安装器 + 使用指南，别人换心走这里 |
-| `buddy-loop/` | 手术原型插件（BuddyLoop 工厂 + BuddyAgent 驱动器，含 resume/持久化/inbox 完整实现） |
-| `buddy.patch.yml` | 换心装配：禁用原生 `agent-loop`，insert 挂载 `buddy-loop` |
+| `dsh-buddy/` | ⭐ **标准 bundle 插件包**（`dsh.bundle` 声明 + `cordis.patch.yml` + 遥控器），一条 `dsh plugin add` 官方命令安装 |
+| `buddy-loop/` | 手术原型插件（BuddyLoop 工厂 + BuddyAgent 驱动器，含 resume/持久化/inbox 完整实现，`--patch` 老路仍可用） |
+| `buddy.patch.yml` | 旧版 `--patch` 装配（遗留；bundle 流程不需要它） |
 | `dsh-recon/` | Stage-1 验证脚本与依赖修复记录（历史参考） |
 | `test-query.mjs` | Spike：直连 CodeBuddy CLI 的最小验证 |
 | [`换心手术全记录.md`](./换心手术全记录.md) | 📖 **完整复盘**：架构、时间线、12 个踩坑全记录、patch 语义速查、Agent 契约面 |
 
-## 快速开始（三步换心）
+## 快速开始（官方 bundle 安装，一条命令换心）
 
-前置条件：已安装并登录 codebuddy CLI、已安装 dsh（npm 包或源码构建均可）、Node ≥ 20。
+前置条件：已安装并登录 codebuddy CLI、已安装 dsh（npm 包或源码构建均可）、pnpm 在 PATH 上、Node ≥ 20。
 
 ```bash
-# 1. 克隆本仓库
+# 1. 克隆本仓库，进入插件包装依赖
 git clone https://github.com/AzcHui/dsh-buddy-spike.git
-cd dsh-buddy-spike
+cd dsh-buddy-spike/dsh-buddy
+npm install --omit=dev        # 只装 @tencent-ai/agent-sdk；@deepseek-ai/* 是 peer，勿本地安装
 
-# 2. 运行安装器（自动探测 dsh 宿主、建链接、生成 patch、自检）
-node dsh-buddy/install.mjs
-# 探测不到宿主时手动指定：
-# node dsh-buddy/install.mjs --host <dsh 的 bin.js 路径>
+# 2. 官方命令安装进 profile（内部转 pnpm，自动登记 bundle 层）
+cd ..
+dsh plugin --profile web add ./dsh-buddy    # profile 名按需换；pnpm 未落链接时见下方注意
 
-# 3. 用安装器打印的点火命令启动
-node <bin.js> web --patch <生成的 buddy.patch.yml> --port 3210
+# 3. 启动（不再需要 --patch）
+dsh web                       # = dsh --profile web
 ```
 
-打开 `http://127.0.0.1:3210`，新建会话发消息，回答来自 CodeBuddy 即成功。
+打开 `http://127.0.0.1:3080`，新建会话发消息，回答来自 CodeBuddy 即成功。
+不想启动只想验层：`dsh --profile web --dump-config`，应看到 `# == dsh-buddy` 层。
+
+> **注意（Windows + pnpm ≥ 11 实测坑）**：`link:` 依赖的顶层链接偶发不落地
+> （pnpm 报 Already up to date 但 `node_modules/dsh-buddy` 缺失）。手动补一个：
+> `fs.symlinkSync(<checkout>, '<profile>/node_modules/dsh-buddy', 'junction')`，
+> 再跑一次 `dsh plugin --profile web install` 触发登记即可。
 
 ## 遥控器（附赠）
 
@@ -67,9 +73,10 @@ node <bin.js> web --patch <生成的 buddy.patch.yml> --port 3210
 
 - **官方换件入口**：dsh 的 `cordis.patch.yml` 支持按 id 覆盖插件行 —— 禁用 `agent-loop` 行 + `insert` 新行挂自定义工厂（服务名同为 `agentLoop`，消费者无感知）
 - **patch 不能换名**：overlay 行的 `name` 与目标行不同会被静默跳过，只能"禁用旧行 + insert 新行"
-- **相对锚定**：insert 行的 `name` 用 `./lib/index.js` 相对 patch 文件定位，绕开裸包名解析锚点在 profile 目录的坑
-- **peerDependencies 策略**：插件的全部 `@deepseek-ai/*` 依赖声明为 peer，由安装器逐包 junction 到宿主真实路径，杜绝 cordis 双实例
-- **单例自检**：cordis / schemastery（`Symbol.for` 全局注册表，先加载者称王）在安装时双向比对解析路径
+- **标准 bundle 形态**：package.json 声明 `dsh.bundle.patch` → `dsh plugin add` 安装进 profile、自动加入 bundles 层栈，启动不再需要 `--patch`；patch 行用裸包名 `name: dsh-buddy`（bundle 已在 profile node_modules，Node 解析可达）
+- **cordis 单例三重保障**：`@deepseek-ai/*` 全部声明 peerDependencies（profile 配 `autoInstallPeers: false` 不会本地安装）→ 解析链落到 dsh 维护的 `$DSH_HOME/profiles/node_modules` 后备目录 → 其链接直指宿主安装的真实包。schemastery 另有 `Symbol.for` 全局注册表兜底
+- **外挂依赖自持**：bundle 的非宿主依赖（`@tencent-ai/agent-sdk`）装在插件包自己的 `node_modules` 里（ESM 沿链接路径解析时最先命中），不污染宿主、不依赖 registry 状态
+- **层叠规则**（文档明载）：后应用的层按行胜出；patch 替换目标行整个 `config` 而非深度合并，覆盖时必须重述该行所有键
 
 更多细节（含 12 个踩坑的"现象→根因→解决→教训"）见 [换心手术全记录.md](./换心手术全记录.md)。
 
