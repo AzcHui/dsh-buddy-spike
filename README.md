@@ -52,6 +52,17 @@ node <bin.js> web --patch <生成的 buddy.patch.yml> --port 3210
 
 打开 `http://127.0.0.1:3210`，新建会话发消息，回答来自 CodeBuddy 即成功。
 
+## 遥控器（附赠）
+
+换心后的 CodeBuddy 是个黑盒，但它的私有参数不必去改配置文件——插件自带一个设置面板（"买电视附赠的遥控器"）：
+
+- **入口**：Web UI 设置页 → 「CodeBuddy 遥控器」分区
+- **可调项**：`model` / 思考模式 `thinking`（自适应/固定预算/关闭）/ `maxTurns` / 工作目录 `cwd` / 环境变量 `env` / 系统提示词 `systemPrompt`（追加或覆盖）
+- **生效时机**：保存后对新会话即时生效，无需重启 dsh；清空字段即回退 CLI 默认
+- **落盘位置**：插件包目录的 `buddy-config.json`（已 gitignore——env 里可能放密钥）
+
+原理：插件是 `dsh.client` 双面包——服务端 half 注册同源路由 `/api/buddy/config`（GET/POST + sameOrigin 校验），浏览器 half 经官方外部 UI 注入机制（`window.__ModuleLoader__` + `dsh.client.inject` 声明）由宿主自动分发加载，`ctx.slots` 挂进设置页。零源码改动、零构建链，client bundle 是手写的 `React.createElement`。
+
 ## 核心原理
 
 - **官方换件入口**：dsh 的 `cordis.patch.yml` 支持按 id 覆盖插件行 —— 禁用 `agent-loop` 行 + `insert` 新行挂自定义工厂（服务名同为 `agentLoop`，消费者无感知）

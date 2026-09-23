@@ -250,6 +250,16 @@ function verify(host, hostDeps) {
     problems.push('codebuddy CLI 不可用——请先安装并登录（SDK 复用其登录态扣腾讯积分）')
   }
 
+  // d) 遥控器浏览器 half（dsh.client 双面声明 + client bundle）
+  const manifest = JSON.parse(fs.readFileSync(path.join(PLUGIN_DIR, 'package.json'), 'utf8'))
+  const clientRel = manifest?.exports?.['./client']
+  const clientDecl = manifest?.dsh?.client
+  if (clientRel && clientDecl?.platform === 'web' && fs.existsSync(path.join(PLUGIN_DIR, clientRel))) {
+    ok(`遥控器面板就绪（${clientRel}，注入 ${clientDecl.inject?.join(', ') || '无'}）`)
+  } else {
+    problems.push('遥控器浏览器 half 缺失——package.json 缺少 exports["./client"] 或 dsh.client 声明，或 lib/client.js 不存在')
+  }
+
   return problems
 }
 
@@ -291,4 +301,8 @@ log(`
 
 启动后浏览器打开 http://127.0.0.1:3210，发消息应由 CodeBuddy 回答
 （无 MISSING_CREDENTIAL 红字；usage 走腾讯积分）。
+
+遥控器：设置页（齿轮）里找「CodeBuddy 遥控器」分区，可调 model /
+thinking / maxTurns / cwd / env / systemPrompt，保存后对新会话生效。
+配置落盘在本包目录的 buddy-config.json（含 env 时注意保密）。
 `)

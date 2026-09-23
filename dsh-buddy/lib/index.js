@@ -20,6 +20,7 @@ import { emitAgentEvent } from '@deepseek-ai/dsh-agent';
 import { SessionLogOffset, SessionPreparation, interruptedTurnClosers } from '@deepseek-ai/dsh-session';
 import z from '@deepseek-ai/schemastery';
 import { BuddyAgent } from './agent.js';
+import { makeBuddyConfigRoute, loadBuddyConfig } from './config.js';
 
 /** Service name kept as 'agentLoop' so sibling services keep resolving. */
 const SERVICE_NAME = 'agentLoop';
@@ -48,6 +49,10 @@ var BuddyLoop = class BuddyLoop extends Service {
         // non-intercepted instance field and use it for service access.
         Object.defineProperty(this, '_loopCtx', { value: ctx, enumerable: false, writable: false });
         ctx.effect(() => ctx.agents.setFactory(this), 'buddyLoop.setFactory()');
+        // 遥控器配置路由：webServer 缺席（纯 CLI 树）时保持等待，不阻塞本服务激活。
+        ctx.inject(['webServer'], (webCtx) => {
+            webCtx.effect(() => webCtx.webServer.register(makeBuddyConfigRoute()), 'buddyLoop: /api/buddy/config route');
+        });
         for (const entry of this.config.agents ?? []) {
             const { id, sessionId, cwd, buddyMaxTurns, ...options } = entry;
             const configuredId = sessionId ?? id;
@@ -56,6 +61,23 @@ var BuddyLoop = class BuddyLoop extends Service {
                     this.ctx.logger.warn(`buddy-loop: config-driven create of "${configuredId}" failed: ${error instanceof Error ? error.message : String(error)}`);
                 });
         }
+    }
+
+    /**
+     * 合并遥控器配置（buddy-config.json，每次调用现读现用 → 保存即对新
+     * 会话生效）与行内配置；显式 agentOptions 仍拥有最终决定权。
+     */
+    _resolveAgentOptions(options) {
+        const buddy = loadBuddyConfig();
+        return {
+            buddyMaxTurns: buddy.maxTurns ?? this.config.buddyMaxTurns,
+            ...(buddy.cwd === undefined ? {} : { buddyCwd: buddy.cwd }),
+            ...(buddy.model === undefined ? {} : { buddyModel: buddy.model }),
+            ...(buddy.thinking === undefined ? {} : { buddyThinking: buddy.thinking }),
+            ...(buddy.env === undefined ? {} : { buddyEnv: buddy.env }),
+            ...(buddy.systemPrompt === undefined ? {} : { buddySystemPrompt: buddy.systemPrompt }),
+            ...(options.agentOptions ?? {}),
+        };
     }
 
     /** Flush events appended before publication; they never re-emit via session/event. */
@@ -92,7 +114,7 @@ var BuddyLoop = class BuddyLoop extends Service {
                     storedCount: 0,
                 };
             }
-            const agentOptions = { buddyMaxTurns: this.config.buddyMaxTurns, ...(options.agentOptions ?? {}) };
+            const agentOptions = this._resolveAgentOptions(options);
             const provisional = new BuddyAgent(loopCtx, id, agentOptions, session);
             try {
                 const setupResult = await options.setup?.(provisional.ctx, provisional);
@@ -166,7 +188,7 @@ var BuddyLoop = class BuddyLoop extends Service {
             }));
             const session = preparation.session;
             const stored = { handle, storedCount: persisted.length + closers.length };
-            const agentOptions = { buddyMaxTurns: this.config.buddyMaxTurns, ...(options.agentOptions ?? {}) };
+            const agentOptions = this._resolveAgentOptions(options);
             const provisional = new BuddyAgent(loopCtx, id, agentOptions, session);
             try {
                 const setupResult = await options.setup?.(provisional.ctx, provisional);

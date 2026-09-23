@@ -306,6 +306,10 @@ export class BuddyAgent {
                     maxTurns: this.options.buddyMaxTurns ?? 10,
                     includePartialMessages: true,
                     ...(this.options.buddyCwd === undefined ? {} : { cwd: this.options.buddyCwd }),
+                    ...(this.options.buddyModel === undefined ? {} : { model: this.options.buddyModel }),
+                    ...(this.options.buddyThinking === undefined ? {} : { thinking: this.options.buddyThinking }),
+                    ...(this.options.buddyEnv === undefined ? {} : { env: this.options.buddyEnv }),
+                    ...(this.options.buddySystemPrompt === undefined ? {} : { systemPrompt: this.options.buddySystemPrompt }),
                 },
             });
             for await (const msg of conversation) {
@@ -374,7 +378,7 @@ export class BuddyAgent {
             content: assembler.blocks(),
             source: {
                 provider: PROVIDER,
-                model: this.options.model ?? DEFAULT_MODEL,
+                model: this.options.buddyModel ?? this.options.model ?? DEFAULT_MODEL,
             },
         });
         const seq = this.session.append('assistant/message', {
