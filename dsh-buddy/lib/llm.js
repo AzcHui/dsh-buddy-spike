@@ -88,11 +88,29 @@ class CodeBuddyLlmAdapter extends LlmAdapter {
 export const name = 'buddy-llm-codebuddy';
 export const inject = ['llm'];
 
+/** 设置页命名空间（小写连字符标识符，ns 契约见 settings 包 installSection）。 */
+const SETTINGS_NS = 'buddy-llm-codebuddy';
+
 export const Config = z.object({});
 
 export function apply(ctx) {
     ctx.effect(
-        () => ctx.llm.registerAdapter([PROVIDER], new CodeBuddyLlmAdapter()),
+        () => {
+            ctx.llm.registerAdapter([PROVIDER], new CodeBuddyLlmAdapter());
+            // 可配置目录声明：设置页「模型」由此渲染 CodeBuddy 卡片
+            // （ModelsSection 只画 configured 行 = settingsNs 命名空间存在的路由）。
+            ctx.llm.registerConfigurableProviders([
+                { provider: PROVIDER, displayName: 'CodeBuddy', settingsNs: SETTINGS_NS, settingsPath: [] },
+            ]);
+        },
         'buddyLlmCodebuddy.registerAdapter(codebuddy)',
     );
+    // 装设置命名空间（空 schema：本提供方无需任何密钥/配置，走 CLI 登录态）。
+    // 无 llm.registerConfigurableProviders 时卡片不出现；无本节时命名空间不存在。
+    ctx.inject(['settings'], (settingsCtx) => {
+        settingsCtx.settings.installSection(ctx, SETTINGS_NS, Config, {}, {
+            setSource: () => {},
+            onChange: () => {},
+        });
+    });
 }
