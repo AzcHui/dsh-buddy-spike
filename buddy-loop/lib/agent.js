@@ -129,6 +129,8 @@ export class BuddyAgent {
     selectedModel;
     /** Count of session events already scanned for model selections. */
     _selectionScanCount = 0;
+    /** Last turn number used in this session（对齐原生 loop 的 turnBoundary 语义）. */
+    _lastTurn = 0;
 
     constructor(loopCtx, id, options, session) {
         this.loopCtx = loopCtx;
@@ -140,6 +142,29 @@ export class BuddyAgent {
         this.ctx = this.scope.ctx;
         this.inbox = new QueueInbox(this);
         this.phase = { kind: 'idle' };
+        this._lastTurn = this._recoverLastTurn();
+    }
+
+    /**
+     * Recover the last used turn number from the session log. Native loop
+     * reads the persisted turnBoundary projection; scanning the log directly
+     * is self-contained and survives projection-cache loss.
+     */
+    _recoverLastTurn() {
+        try {
+            const events = this.session.snapshotEvents(SessionLogOffset(0));
+            let max = 0;
+            for (const event of events) {
+                if (event.type === 'turn/start'
+                    && Number.isFinite(event.data?.turn)
+                    && event.data.turn > max) {
+                    max = event.data.turn;
+                }
+            }
+            return max;
+        } catch {
+            return 0; // 日志不可用时从 1 起编，绝不阻塞回合
+        }
     }
 
     get status() {
@@ -208,7 +233,9 @@ export class BuddyAgent {
         }
         const driver = Promise.withResolvers();
         this.activityDone = driver.promise;
-        this.setPhase({ kind: 'running', abort: new AbortController(), turn: 0, wakeRequested: false });
+        // turn 起点延续会话已有编号（原生 loop 从 turnBoundary 投影恢复 lastTurn；
+        // 硬编码 0 会让每个新回合都重数 turn:1，UI 按 turn 组装时被撞号击穿）
+        this.setPhase({ kind: 'running', abort: new AbortController(), turn: this._lastTurn, wakeRequested: false });
         this.loopCtx.agents.withInitiator(this, () => this.kick()).then(driver.resolve, driver.reject);
     }
 
@@ -222,6 +249,7 @@ export class BuddyAgent {
         } finally {
             if (this.phase.kind === 'running') {
                 const { turn, wakeRequested } = this.phase;
+                this._lastTurn = Math.max(this._lastTurn, turn);
                 this.setPhase({ kind: 'idle', lastTurn: turn });
                 if (wakeRequested && this.queue.length > 0) this.wakeDriver();
             }
