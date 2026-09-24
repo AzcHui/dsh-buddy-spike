@@ -29,6 +29,7 @@ dsh Web UI ──会话/事件──▶ BuddyLoop（本仓库插件，服务名 
 | `buddy-loop/` | 手术原型插件（BuddyLoop 工厂 + BuddyAgent 驱动器，含 resume/持久化/inbox 完整实现，`--patch` 老路仍可用） |
 | `buddy.patch.yml` | 旧版 `--patch` 装配（遗留；bundle 流程不需要它） |
 | `dsh-recon/` | Stage-1 验证脚本与依赖修复记录（历史参考） |
+| `.agents/skills/` | 🧠 **Agent 技能包**（clone 即用）：`dsh-plugin-dev` 开发插件 / `dsh-troubleshoot` 四步排障 / `dsh-heart-transplant` 换心适配模式 |
 | `test-query.mjs` | Spike：直连 CodeBuddy CLI 的最小验证 |
 | [`换心手术全记录.md`](./换心手术全记录.md) | 📖 **完整复盘**：架构、时间线、12 个踩坑全记录、patch 语义速查、Agent 契约面 |
 
