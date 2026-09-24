@@ -65,9 +65,23 @@ class CodeBuddyLlmAdapter extends LlmAdapter {
         }));
     }
 
-    /** 一次查询内解析确切的提供方/模型身份；目录外 ID 同样放行。 */
+    /**
+     * 一次查询内解析确切的提供方/模型身份（LlmResolvedModelInfo 契约：
+     * provider 必须等于路由名、id 必须等于请求的模型 ID、name 非空）。
+     * 目录内返回目录元数据；目录外 ID 同样放行（name 回退为 ID 本身）。
+     */
     async resolveModel(provider, model) {
-        return { provider, model };
+        if (provider !== PROVIDER) {
+            throw new LlmError(`unknown provider route "${provider}"`, 'UNKNOWN_PROVIDER');
+        }
+        const entry = MODEL_CATALOG.find((m) => m.id === model);
+        return {
+            provider: PROVIDER,
+            id: model,
+            name: entry?.name ?? model,
+            ...(entry?.description === undefined ? {} : { description: entry.description }),
+            inputModalities: ['text'],
+        };
     }
 }
 
