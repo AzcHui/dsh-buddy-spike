@@ -1,5 +1,5 @@
 /**
- * dsh-buddy-loop client face — "电视附赠的遥控器" 浏览器 half。
+ * dsh-buddy-loop client face — "电视附赠的遥控器" 浏览器 half（对外名：CodeBuddy 控制台）。
  *
  * 加载链路（0.1.5-rc.3 官方机制，同 dsh-deep-whale 皮肤插件）：
  *   服务端 ClientModuleRegistry 扫描到本包 package.json 的 dsh.client 声明
@@ -17,6 +17,30 @@ window.__ModuleLoader__.load({
         const React = require("react");
 
         const ROUTE = "/api/buddy/config";
+        // codebuddy CLI --model 官方支持清单（codebuddy --help，2026-09 实测）
+        const MODEL_OPTIONS = [
+            { value: "", label: "默认（跟随 CLI 配置）" },
+            { value: "fast-model", label: "fast-model — 快速" },
+            { value: "balanced-model", label: "balanced-model — 均衡" },
+            { value: "deep-model", label: "deep-model — 深度推理" },
+            { value: "glm-5.3", label: "glm-5.3" },
+            { value: "glm-5.3-flash", label: "glm-5.3-flash" },
+            { value: "glm-5.2", label: "glm-5.2" },
+            { value: "glm-5.1", label: "glm-5.1" },
+            { value: "glm-5v-turbo", label: "glm-5v-turbo" },
+            { value: "deepseek-v4-pro", label: "deepseek-v4-pro" },
+            { value: "deepseek-v4.1-flash", label: "deepseek-v4.1-flash" },
+            { value: "kimi-k3-1", label: "kimi-k3-1" },
+            { value: "kimi-k2.8-preview", label: "kimi-k2.8-preview" },
+            { value: "kimi-k2.7", label: "kimi-k2.7" },
+            { value: "kimi-k2.6", label: "kimi-k2.6" },
+            { value: "minimax-m3", label: "minimax-m3" },
+            { value: "hy4-preview", label: "hy4-preview" },
+            { value: "hy4-preview-f", label: "hy4-preview-f" },
+            { value: "hy3", label: "hy3" },
+            { value: "hy3-x", label: "hy3-x" },
+            { value: "__custom__", label: "自定义…（手输模型 ID）" },
+        ];
         const THINKING_OPTIONS = [
             { value: "", label: "默认（跟随 CLI 配置）" },
             { value: "adaptive", label: "自适应思考（adaptive）" },
@@ -67,8 +91,11 @@ window.__ModuleLoader__.load({
 
         /** 服务端配置 → 表单状态（与服务端 wire 形态解耦）。 */
         function hydrateForm(config) {
+            const model = typeof config.model === "string" ? config.model : "";
+            const known = MODEL_OPTIONS.some((option) => option.value === model && option.value !== "__custom__");
             return {
-                model: typeof config.model === "string" ? config.model : "",
+                model,
+                modelChoice: model === "" ? "" : (known ? model : "__custom__"),
                 maxTurns: typeof config.maxTurns === "number" ? String(config.maxTurns) : "",
                 cwd: typeof config.cwd === "string" ? config.cwd : "",
                 thinkingType: config.thinking && typeof config.thinking.type === "string" ? config.thinking.type : "",
@@ -86,7 +113,11 @@ window.__ModuleLoader__.load({
         /** 表单状态 → 服务端 wire 载荷；空字段 = 移除该项覆盖。 */
         function buildPayload(form) {
             const payload = {};
-            if (form.model.trim() !== "") payload.model = form.model.trim();
+            if (form.modelChoice === "__custom__") {
+                if (form.model.trim() !== "") payload.model = form.model.trim();
+            } else if (form.modelChoice !== "") {
+                payload.model = form.modelChoice;
+            }
             const turns = Number(form.maxTurns);
             if (form.maxTurns.trim() !== "" && Number.isInteger(turns) && turns >= 1) payload.maxTurns = turns;
             if (form.cwd.trim() !== "") payload.cwd = form.cwd.trim();
@@ -153,14 +184,19 @@ window.__ModuleLoader__.load({
             return React.createElement("div", { style: styles.section },
                 React.createElement("p", { style: styles.hint },
                     "CodeBuddy 私有配置（dsh 自身设置不受影响）。保存后对新会话生效；清空字段即移除该项覆盖。"),
-                row("模型 model", "留空 = CLI 默认", input({ value: form.model, onChange: set("model"), placeholder: "codebuddy" })),
+                row("模型 model", "来自 codebuddy CLI 官方支持清单；留空 = CLI 默认",
+                    React.createElement("select", { style: styles.input, value: form.modelChoice, onChange: set("modelChoice") },
+                        MODEL_OPTIONS.map((option) => React.createElement("option", { key: option.value, value: option.value }, option.label)))),
+                form.modelChoice === "__custom__"
+                    ? row("自定义模型 ID", "", input({ value: form.model, onChange: set("model"), placeholder: "填 codebuddy 支持的模型 ID" }))
+                    : null,
                 row("回合上限 maxTurns", "", input({ value: form.maxTurns, onChange: set("maxTurns"), inputMode: "numeric", placeholder: "30" })),
                 row("思考模式 thinking", "", React.createElement("select", { style: styles.input, value: form.thinkingType, onChange: set("thinkingType") },
                     THINKING_OPTIONS.map((option) => React.createElement("option", { key: option.value, value: option.value }, option.label)))),
                 form.thinkingType === "enabled"
                     ? row("思考预算 budgetTokens", "", input({ value: form.budgetTokens, onChange: set("budgetTokens"), inputMode: "numeric" }))
                     : null,
-                row("工作目录 cwd", "CodeBuddy 执行命令的目录", input({ value: form.cwd, onChange: set("cwd"), placeholder: "E:\\projects\\demo" })),
+                row("工作目录 cwd", "CodeBuddy 执行命令的目录；留空 = 跟随 dsh 进程的启动目录", input({ value: form.cwd, onChange: set("cwd"), placeholder: "E:\\projects\\demo" })),
                 row("环境变量 env", "每行 KEY=VALUE，# 开头为注释", React.createElement("textarea", {
                     style: { ...styles.input, ...styles.area }, value: form.envText, onChange: set("envText"), rows: 3,
                 })),
@@ -183,7 +219,7 @@ window.__ModuleLoader__.load({
                 name: "settings.section",
                 id: "dsh-buddy-config",
                 order: 120,
-                label: "CodeBuddy 遥控器",
+                label: "CodeBuddy 控制台",
             }, BuddyRemotePanel));
         }
 

@@ -25,7 +25,7 @@ dsh Web UI ──会话/事件──▶ BuddyLoop（本仓库插件，服务名 
 
 | 路径 | 内容 |
 |---|---|
-| `dsh-buddy/` | ⭐ **标准 bundle 插件包**（`dsh.bundle` 声明 + `cordis.patch.yml` + 遥控器），一条 `dsh plugin add` 官方命令安装 |
+| `dsh-buddy/` | ⭐ **标准 bundle 插件包**（`dsh.bundle` 声明 + `cordis.patch.yml` + 控制台），一条 `dsh plugin add` 官方命令安装 |
 | `buddy-loop/` | 手术原型插件（BuddyLoop 工厂 + BuddyAgent 驱动器，含 resume/持久化/inbox 完整实现，`--patch` 老路仍可用） |
 | `buddy.patch.yml` | 旧版 `--patch` 装配（遗留；bundle 流程不需要它） |
 | `dsh-recon/` | Stage-1 验证脚本与依赖修复记录（历史参考） |
@@ -58,13 +58,15 @@ dsh web                       # = dsh --profile web
 > `fs.symlinkSync(<checkout>, '<profile>/node_modules/dsh-buddy', 'junction')`，
 > 再跑一次 `dsh plugin --profile web install` 触发登记即可。
 
-## 遥控器（附赠）
+## 控制台（附赠）
 
-换心后的 CodeBuddy 是个黑盒，但它的私有参数不必去改配置文件——插件自带一个设置面板（"买电视附赠的遥控器"）：
+换心后的 CodeBuddy 是个黑盒，但它的私有参数不必去改配置文件——插件自带一个设置面板（"买电视附赠的遥控器"，页面名叫**控制台**）：
 
-- **入口**：Web UI 设置页 → 「CodeBuddy 遥控器」分区
-- **可调项**：`model` / 思考模式 `thinking`（自适应/固定预算/关闭）/ `maxTurns` / 工作目录 `cwd` / 环境变量 `env` / 系统提示词 `systemPrompt`（追加或覆盖）
+- **入口**：Web UI 设置页 → 「CodeBuddy 控制台」分区
+- **可调项**：`model`（下拉，官方支持清单）/ 思考模式 `thinking`（自适应/固定预算/关闭）/ `maxTurns` / 工作目录 `cwd` / 环境变量 `env` / 系统提示词 `systemPrompt`（追加或覆盖）
+- **模型清单**（`codebuddy --help` 实测）：`fast-model` / `balanced-model` / `deep-model` / `glm-5.3` / `glm-5.3-flash` / `glm-5.2` / `glm-5.1` / `glm-5v-turbo` / `deepseek-v4-pro` / `deepseek-v4.1-flash` / `kimi-k3-1` / `kimi-k2.8-preview` / `kimi-k2.7` / `kimi-k2.6` / `minimax-m3` / `hy4-preview(-f)` / `hy3` / `hy3-x`，另支持手输自定义模型 ID
 - **生效时机**：保存后对新会话即时生效，无需重启 dsh；清空字段即回退 CLI 默认
+- **工作目录默认值**：不填时 CodeBuddy 继承 **dsh 进程的启动目录**（在哪个目录跑 `dsh web` 就在哪），需要圈定项目目录就在控制台里填 `cwd`
 - **落盘位置**：插件包目录的 `buddy-config.json`（已 gitignore——env 里可能放密钥）
 
 原理：插件是 `dsh.client` 双面包——服务端 half 注册同源路由 `/api/buddy/config`（GET/POST + sameOrigin 校验），浏览器 half 经官方外部 UI 注入机制（`window.__ModuleLoader__` + `dsh.client.inject` 声明）由宿主自动分发加载，`ctx.slots` 挂进设置页。零源码改动、零构建链，client bundle 是手写的 `React.createElement`。

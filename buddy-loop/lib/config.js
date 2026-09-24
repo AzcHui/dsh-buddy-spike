@@ -1,7 +1,7 @@
 /**
- * dsh-buddy-loop — 遥控器配置存储与 HTTP 路由（服务端 half）。
+ * dsh-buddy-loop — 控制台配置存储与 HTTP 路由（服务端 half）。
  *
- * "电视附赠的遥控器"：CodeBuddy 私有配置（model/thinking/maxTurns/cwd/env/
+ * "电视附赠的遥控器"（页面名：控制台）：CodeBuddy 私有配置（model/thinking/maxTurns/cwd/env/
  * systemPrompt）独立于 dsh 自身设置，由设置页里的遥控器面板通过同源路由
  * 读写，落盘在包目录的 buddy-config.json。BuddyLoop 每次建代理时读取最新
  * 配置，因此保存后对新会话即时生效，无需重启。
@@ -165,7 +165,7 @@ function readBody(req) {
     });
 }
 
-/** 遥控器配置路由：GET 读取、POST 校验落盘。 */
+/** 控制台配置路由：GET 读取、POST 校验落盘。 */
 export function makeBuddyConfigRoute() {
     return {
         kind: 'exact',

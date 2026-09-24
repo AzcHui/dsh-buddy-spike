@@ -24,3 +24,9 @@ Thumbs.db
 
 # ==== 遥控器本地配置（env 可能含密钥，绝不入库）====
 buddy-config.json
+
+# ==== 排障诊断产物（可能含临时 token，绝不入库）====
+*.log
+dump-*.txt
+*.utf8.txt
+dump-pnpm.txt

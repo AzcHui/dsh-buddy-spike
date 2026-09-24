@@ -31,8 +31,8 @@ try {
   const pkg = JSON.parse(readFileSync(join(HERE, 'package.json'), 'utf8'))
   if (pkg.dsh?.bundle?.patch === './cordis.patch.yml') ok('dsh.bundle 声明正确')
   else problems.push('package.json 缺少 dsh.bundle.patch 声明，dsh 不会把它当组合包激活')
-  if (pkg.dsh?.client?.platform === 'web') ok('遥控器 dsh.client 声明在位')
-  else problems.push('package.json 缺少 dsh.client 声明，设置页不会出现遥控器面板')
+  if (pkg.dsh?.client?.platform === 'web') ok('控制台 dsh.client 声明在位')
+  else problems.push('package.json 缺少 dsh.client 声明，设置页不会出现控制台面板')
 } catch (e) {
   problems.push('package.json 不可读: ' + e.message)
 }
