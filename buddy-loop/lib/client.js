@@ -1,18 +1,21 @@
 /**
- * dsh-buddy-loop client face — "电视附赠的遥控器" 浏览器 half（对外名：CodeBuddy 控制台）。
+ * dsh-buddy client face — "电视附赠的遥控器" 浏览器 half（对外名：CodeBuddy 控制台）。
  *
  * 加载链路（0.1.5-rc.3 官方机制，同 dsh-deep-whale 皮肤插件）：
  *   服务端 ClientModuleRegistry 扫描到本包 package.json 的 dsh.client 声明
  *   （platform:"web" + exports["./client"]）→ client bundle 组进
- *   window.__DSH_BOOT__ 图，经 /plugins/??dsh-buddy-loop/client.js 分发 →
- *   浏览器 boot 时 loader.create("dsh-buddy-loop") 拉取本文件，工厂物化后
- *   作为 cordis client 插件激活，经 ctx.slots 挂进设置页。
+ *   window.__DSH_BOOT__ 图，经 /plugins/??dsh-buddy/client.js 分发 →
+ *   浏览器 arrive() 按包名 "dsh-buddy" 严格查注册（modules/src/client/system.ts），
+ *   工厂物化后作为 cordis client 插件激活，经 ctx.slots 挂进设置页。
  *
  * 注意：本文件是经典脚本（<script src> 加载），顶层禁止 import/export；
  * react 等平台单例由宿主种子模块表经 require 注入。
+ * 注册 id 必须等于 npm 包名 —— 旧名 "dsh-buddy-loop" 是 spike 时代遗留，
+ * 迁移后未同步，会在 HMR/严格 arrive 路径上炸出
+ * "loaded without registering" 并挂掉整个 Failed to load plugins 面板。
  */
 window.__ModuleLoader__.load({
-    id: "dsh-buddy-loop",
+    id: "dsh-buddy",
     factory: (require) => {
         const React = require("react");
 
