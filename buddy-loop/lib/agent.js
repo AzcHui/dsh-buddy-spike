@@ -21,6 +21,7 @@ import {
 import { SessionLogOffset } from '@deepseek-ai/dsh-session';
 import { createScope } from '@deepseek-ai/dsh-scope';
 import { query } from '@tencent-ai/agent-sdk';
+import { buddyLog } from './log.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -152,6 +153,7 @@ export class BuddyAgent {
         this.inbox = new QueueInbox(this);
         this.phase = { kind: 'idle' };
         this._lastTurn = this._recoverLastTurn();
+        buddyLog('agent-created', { session: id, recoveredLastTurn: this._lastTurn });
     }
 
     /**
@@ -303,6 +305,7 @@ export class BuddyAgent {
                 && typeof value.provider === 'string' && typeof value.model === 'string'
             ) {
                 this.selectedModel = value;
+                buddyLog('model-selection', { session: this.session.id, provider: value.provider, model: value.model });
             }
         }
     }
@@ -329,6 +332,7 @@ export class BuddyAgent {
         phase.turn = turn;
         this._absorbModelSelection();
         this.session.append('turn/start', { turn });
+        buddyLog('turn-start', { session: this.session.id, turn });
         const entry = this.queue.shift();
         const message = entry?.message;
         let outcome;
@@ -358,6 +362,7 @@ export class BuddyAgent {
         } finally {
             try {
                 this.session.append('turn/end', { turn, reason: outcome });
+                buddyLog('turn-end', { session: this.session.id, turn, outcome: outcome.kind });
             } catch (endError) {
                 this.dispatch.emit('agent/error', { turn, step: 1, error: endError });
             }
@@ -423,6 +428,14 @@ export class BuddyAgent {
             };
             try {
                 const model = this._resolveModel();
+                buddyLog('query-start', {
+                    session: this.session.id,
+                    turn,
+                    model,
+                    mode: resume === undefined ? 'create' : 'resume',
+                    resumeId: resume,
+                    promptLen: prompt.length,
+                });
                 const conversation = query({
                     prompt,
                     options: {
@@ -443,12 +456,16 @@ export class BuddyAgent {
                     if (msg.type === 'system' && msg.subtype === 'init') {
                         // 记录 CLI 侧实际会话 id，后续 resume 以它为准
                         this._buddyCliSessionId = msg.session_id;
+                        buddyLog('cli-init', { session: this.session.id, cliSessionId: msg.session_id });
                     } else if (msg.type === 'stream_event') {
-                    const event = msg.event;
-                    const delta = event?.delta;
-                    if (event?.type === 'content_block_delta' && delta) {
-                        if (delta.type === 'text_delta' && delta.text) {
-                            streamedText = true;
+                        const event = msg.event;
+                        const delta = event?.delta;
+                        if (event?.type === 'content_block_delta' && delta) {
+                            if (delta.type === 'text_delta' && delta.text) {
+                                if (!streamedText) {
+                                    buddyLog('first-chunk', { session: this.session.id, turn });
+                                }
+                                streamedText = true;
                             pushChunk({ type: 'text-delta', index: 0, text: delta.text });
                         } else if (delta.type === 'thinking_delta' && delta.thinking) {
                             pushChunk({ type: 'reasoning-delta', index: 1, text: delta.thinking });
@@ -468,6 +485,13 @@ export class BuddyAgent {
                     if (msg.error) failure ??= { message: String(msg.error), code: 'CODEBUDDY_ERROR' };
                 } else if (msg.type === 'result') {
                     usage = mapUsage(msg.usage) ?? usage;
+                    buddyLog('query-result', {
+                        session: this.session.id,
+                        turn,
+                        subtype: msg.subtype,
+                        isError: msg.is_error === true,
+                        ...(usage === undefined ? {} : { usage }),
+                    });
                     if (msg.subtype !== 'success' || msg.is_error === true) {
                         failure ??= {
                             message: Array.isArray(msg.errors) && msg.errors.length > 0
@@ -488,6 +512,12 @@ export class BuddyAgent {
                 await consume(resume);
                 return true;
             } catch (error) {
+                buddyLog('query-failure', {
+                    session: this.session.id,
+                    turn,
+                    mode: resume === undefined ? 'create' : 'resume',
+                    message: error instanceof Error ? error.message : String(error),
+                });
                 if (!signal.aborted && failure === undefined) {
                     failure = {
                         message: error instanceof Error ? error.message : String(error),
@@ -501,6 +531,7 @@ export class BuddyAgent {
         // resume 失败且没有任何流式输出 → CodeBuddy 侧转录已失效（被清理，
         // 或本修复之前的历史没有对应转录），降级为新建会话重试一次（无损重试）。
         if (!ok && resumeId !== undefined && !signal.aborted && !streamedText) {
+            buddyLog('query-fallback', { session: this.session.id, turn, from: resumeId });
             failure = undefined;
             await attempt(undefined);
         }
