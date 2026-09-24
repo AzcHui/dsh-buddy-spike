@@ -330,41 +330,139 @@ export class BuddyAgent {
      * provided"）。每次请求都落黑匣子留审计；控制台 buddy.autoApprove=false
      * 可改为全部拒绝。正式审批面桥接见《换心手术全记录》路线图。
      */
-    async _handleToolPermission(toolName, input) {
-        const allow = this.options.buddyAutoApprove !== false;
+    /**
+     * SDK 权限回调入口。两条原生桥：
+     * - AskUserQuestion → dsh 问答面（user-questions waterfall，弹 QuestionComposer）
+     * - 其余工具在 autoApprove=false 时 → dsh 审批面（approval.request，弹审批面板）
+     * autoApprove=true（默认）保持自动放行，不弹窗。
+     */
+    async _handleToolPermission(toolName, input, options) {
+        const autoAllow = this.options.buddyAutoApprove !== false;
         let inputSummary;
         try {
             inputSummary = JSON.stringify(input)?.slice(0, 200);
         } catch {
             inputSummary = '[unserializable]';
         }
-        // AskUserQuestion 的"批准"语义是"带上用户答案放行"（SDK 契约：
-        // updatedInput.answers 由 permission component 收集）。dsh 侧尚无问答面，
-        // 自动批准却不带答案会让 CLI 永远等待 → 回合挂死。因此这类工具一律
-        // 软拒绝（不 interrupt），引导模型按最合理的默认项继续并说明假设。
         if (toolName === 'AskUserQuestion') {
-            buddyLog('tool-permission', {
-                session: this.session.id,
-                tool: toolName,
-                decision: 'deny',
-                reason: 'no question surface — dsh-buddy cannot collect user answers yet',
-                inputSummary,
-            });
-            return {
-                behavior: 'deny',
-                message: 'dsh-buddy: 当前无法把问题转达给用户（问答界面未桥接）。'
-                    + '请不要再次提问，基于已有上下文选择最合理的默认选项继续执行，'
-                    + '并在最终回复中明确说明你做了哪些假设。',
-            };
+            return this._handleAskUserQuestion(input, options?.signal, inputSummary);
+        }
+        if (!autoAllow) {
+            return this._handleApprovalAsk(toolName, inputSummary, options?.signal);
         }
         buddyLog('tool-permission', {
             session: this.session.id,
             tool: toolName,
-            decision: allow ? 'allow' : 'deny',
+            decision: 'allow',
             inputSummary,
         });
-        if (allow) return { behavior: 'allow' };
-        return { behavior: 'deny', message: 'dsh-buddy: 控制台已关闭工具自动批准（autoApprove=false）' };
+        return { behavior: 'allow' };
+    }
+
+    /**
+     * 提问桥：把 CodeBuddy 的 AskUserQuestion 映射到 dsh 原生问答缝。
+     * UserQuestionService.ask() 经 waterfall 到 web UI 的 QuestionComposer，
+     * 返回人类的真实答案；SDK 契约要求 allow 时在 updatedInput.answers 带回答案。
+     * 服务缺失或问答失败时软拒绝（不 interrupt），引导模型自行取默认项继续。
+     */
+    async _handleAskUserQuestion(input, signal, inputSummary) {
+        const sdkQuestions = Array.isArray(input?.questions) ? input.questions : [];
+        const items = sdkQuestions.map((q, i) => ({
+            id: `q${i}`,
+            question: String(q?.question ?? ''),
+            ...(q?.header === undefined ? {} : { header: String(q.header) }),
+            ...(Array.isArray(q?.options)
+                ? {
+                    options: q.options.map((o) => ({
+                        label: String(o?.label ?? ''),
+                        ...(o?.description === undefined ? {} : { description: String(o.description) }),
+                    })),
+                }
+                : {}),
+            ...(q?.multiSelect === true ? { multiSelect: true } : {}),
+        }));
+        if (items.length === 0) {
+            return { behavior: 'deny', message: 'dsh-buddy: AskUserQuestion 缺少 questions 字段。' };
+        }
+        try {
+            const service = this.ctx.get('userQuestions');
+            if (service === undefined) throw new Error('user-questions 服务未组装');
+            const answer = await service.ask({ questions: items, agent: this, signal });
+            // dsh 答案 [{id, selected[], custom?}] → SDK 期望的 Record<问题文本, 答案文本>
+            const answers = {};
+            for (const item of answer?.answers ?? []) {
+                const index = Number(String(item?.id ?? '').slice(1));
+                const source = sdkQuestions[index];
+                if (source === undefined) continue;
+                let text = Array.isArray(item?.selected) ? item.selected.join(', ') : '';
+                if (item?.custom) text = text === '' ? item.custom : `${text}, ${item.custom}`;
+                answers[String(source.question)] = text;
+            }
+            buddyLog('tool-question', {
+                session: this.session.id,
+                count: items.length,
+                answered: Object.keys(answers).length,
+                inputSummary,
+            });
+            return { behavior: 'allow', updatedInput: { ...input, answers } };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            buddyLog('tool-permission', {
+                session: this.session.id,
+                tool: 'AskUserQuestion',
+                decision: 'deny',
+                reason: `question bridge failed: ${message}`,
+                inputSummary,
+            });
+            return {
+                behavior: 'deny',
+                message: 'dsh-buddy: 无法把问题转达给用户（' + message + '）。'
+                    + '请不要再次提问，基于已有上下文选择最合理的默认选项继续执行，'
+                    + '并在最终回复中明确说明你做了哪些假设。',
+            };
+        }
+    }
+
+    /**
+     * 审批桥：autoApprove=false 时把工具决策交给 dsh 原生审批面。
+     * ApprovalService.request() 落 approval/asked + approval/decided 审计对，
+     * web UI 弹审批面板；'allowed-once' 是唯一放行结果，其余一律拒绝（失败关闭）。
+     */
+    async _handleApprovalAsk(toolName, inputSummary, signal) {
+        try {
+            const approval = this.ctx.get('approval');
+            if (approval === undefined) throw new Error('approval 服务未组装');
+            const outcome = await approval.request({
+                agent: this,
+                toolName,
+                reason: `CodeBuddy 请求调用工具 ${toolName}`,
+                signal,
+            });
+            buddyLog('tool-permission', {
+                session: this.session.id,
+                tool: toolName,
+                decision: outcome,
+                inputSummary,
+            });
+            if (outcome === 'allowed-once') return { behavior: 'allow' };
+            return {
+                behavior: 'deny',
+                message: `dsh-buddy: 用户在 dsh 审批面未放行 ${toolName}（${outcome}）。请改用无需该工具的方案继续。`,
+            };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            buddyLog('tool-permission', {
+                session: this.session.id,
+                tool: toolName,
+                decision: 'deny',
+                reason: `approval bridge failed: ${message}`,
+                inputSummary,
+            });
+            return {
+                behavior: 'deny',
+                message: `dsh-buddy: 审批面不可用（${message}），按失败关闭策略拒绝 ${toolName}。`,
+            };
+        }
     }
 
     /** One turn = claim one queued user message and run one CodeBuddy query. */
@@ -491,7 +589,7 @@ export class BuddyAgent {
                         ...(this.options.buddyEnv === undefined ? {} : { env: this.options.buddyEnv }),
                         ...(this.options.buddySystemPrompt === undefined ? {} : { systemPrompt: this.options.buddySystemPrompt }),
                         ...(this.options.buddyPermissionMode === undefined ? {} : { permissionMode: this.options.buddyPermissionMode }),
-                        canUseTool: (toolName, input) => this._handleToolPermission(toolName, input),
+                        canUseTool: (toolName, input, options) => this._handleToolPermission(toolName, input, options),
                         abortController: controller,
                     },
                 });

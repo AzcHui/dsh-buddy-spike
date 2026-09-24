@@ -215,10 +215,10 @@ window.__ModuleLoader__.load({
                 row("环境变量 env", "每行 KEY=VALUE，# 开头为注释", React.createElement("textarea", {
                     style: { ...styles.input, ...styles.area }, value: form.envText, onChange: set("envText"), rows: 3,
                 })),
-                row("工具自动批准 autoApprove", "关闭后 CodeBuddy 的工具调用全部被拒；每次批准/拒绝都记录在运行日志（$DSH_HOME/logs/dsh-buddy.log）",
+                row("工具自动批准 autoApprove", "开 = 自动放行不弹窗；关 = 每次工具调用弹出 dsh 审批面板供你决定；所有决定都记录在运行日志（$DSH_HOME/logs/dsh-buddy.log）",
                     React.createElement("select", { style: styles.input, value: form.autoApprove, onChange: set("autoApprove") },
-                        React.createElement("option", { value: "on" }, "开 — 自动批准（当前 dsh 无审批面，推荐）"),
-                        React.createElement("option", { value: "off" }, "关 — 全部拒绝"))),
+                        React.createElement("option", { value: "on" }, "开 — 自动批准（不打扰）"),
+                        React.createElement("option", { value: "off" }, "关 — 逐项弹窗审批（dsh 审批面）"))),
                 row("权限模式 permissionMode", "透传 CodeBuddy CLI 的审批策略；留空 = 跟随 CLI 默认",
                     React.createElement("select", { style: styles.input, value: form.permissionMode, onChange: set("permissionMode") },
                         PERMISSION_OPTIONS.map((option) => React.createElement("option", { key: option.value, value: option.value }, option.label)))),
