@@ -338,6 +338,25 @@ export class BuddyAgent {
         } catch {
             inputSummary = '[unserializable]';
         }
+        // AskUserQuestion 的"批准"语义是"带上用户答案放行"（SDK 契约：
+        // updatedInput.answers 由 permission component 收集）。dsh 侧尚无问答面，
+        // 自动批准却不带答案会让 CLI 永远等待 → 回合挂死。因此这类工具一律
+        // 软拒绝（不 interrupt），引导模型按最合理的默认项继续并说明假设。
+        if (toolName === 'AskUserQuestion') {
+            buddyLog('tool-permission', {
+                session: this.session.id,
+                tool: toolName,
+                decision: 'deny',
+                reason: 'no question surface — dsh-buddy cannot collect user answers yet',
+                inputSummary,
+            });
+            return {
+                behavior: 'deny',
+                message: 'dsh-buddy: 当前无法把问题转达给用户（问答界面未桥接）。'
+                    + '请不要再次提问，基于已有上下文选择最合理的默认选项继续执行，'
+                    + '并在最终回复中明确说明你做了哪些假设。',
+            };
+        }
         buddyLog('tool-permission', {
             session: this.session.id,
             tool: toolName,
