@@ -18,6 +18,7 @@ import {
     LlmAttemptId,
     createAssistantMessage,
 } from '@deepseek-ai/dsh-llm';
+import { SessionLogOffset } from '@deepseek-ai/dsh-session';
 import { createScope } from '@deepseek-ai/dsh-scope';
 import { query } from '@tencent-ai/agent-sdk';
 
@@ -124,6 +125,10 @@ export class BuddyAgent {
     /** Pending inputs (flat FIFO of { target, message }). */
     queue = [];
     assistantAttemptCounter = 0;
+    /** Latest `model/selection` event value (UI 模型选择器的会话级选择). */
+    selectedModel;
+    /** Count of session events already scanned for model selections. */
+    _selectionScanCount = 0;
 
     constructor(loopCtx, id, options, session) {
         this.loopCtx = loopCtx;
@@ -223,12 +228,53 @@ export class BuddyAgent {
         }
     }
 
+    /**
+     * 吸收自上次扫描以来的新会话事件，取最新的 `model/selection`。
+     * UI 模型选择器经 session.selectModel 落为该会话事件（session-controller
+     * selectForNextRequest → session.append('model/selection')），buddy-loop
+     * 在每个回合开始时增量扫描截获——选中即对下一回合生效。
+     */
+    _absorbModelSelection() {
+        let fresh;
+        try {
+            fresh = this.session.snapshotEvents(SessionLogOffset(this._selectionScanCount));
+        } catch {
+            return; // 快照不可用时保持现状，绝不阻塞回合
+        }
+        this._selectionScanCount += fresh.length;
+        for (const event of fresh) {
+            if (event?.type !== 'model/selection') continue;
+            const value = event.value ?? event.data;
+            if (
+                value && typeof value === 'object'
+                && typeof value.provider === 'string' && typeof value.model === 'string'
+            ) {
+                this.selectedModel = value;
+            }
+        }
+    }
+
+    /**
+     * 解析本次查询实际使用的模型，优先级：
+     * UI 会话选择（provider === 'codebuddy'）> 控制台配置 > CLI 默认。
+     * 非 codebuddy 路由的选择（如 deepseek-official）无法由 CodeBuddy SDK
+     * 承载，保持现状不跟随。
+     */
+    _resolveModel() {
+        const selection = this.selectedModel;
+        if (selection && selection.provider === PROVIDER && selection.model !== '') {
+            return selection.model;
+        }
+        return this.options.buddyModel ?? this.options.model ?? DEFAULT_MODEL;
+    }
+
     /** One turn = claim one queued user message and run one CodeBuddy query. */
     async turn() {
         const phase = this.phase;
         const signal = phase.abort.signal;
         const turn = phase.turn + 1;
         phase.turn = turn;
+        this._absorbModelSelection();
         this.session.append('turn/start', { turn });
         const entry = this.queue.shift();
         const message = entry?.message;
@@ -300,13 +346,14 @@ export class BuddyAgent {
             frame: { type: 'start', attemptId, revision: nextRevision(), turn, step },
         });
         try {
+            const model = this._resolveModel();
             const conversation = query({
                 prompt,
                 options: {
                     maxTurns: this.options.buddyMaxTurns ?? 10,
                     includePartialMessages: true,
+                    model,
                     ...(this.options.buddyCwd === undefined ? {} : { cwd: this.options.buddyCwd }),
-                    ...(this.options.buddyModel === undefined ? {} : { model: this.options.buddyModel }),
                     ...(this.options.buddyThinking === undefined ? {} : { thinking: this.options.buddyThinking }),
                     ...(this.options.buddyEnv === undefined ? {} : { env: this.options.buddyEnv }),
                     ...(this.options.buddySystemPrompt === undefined ? {} : { systemPrompt: this.options.buddySystemPrompt }),
@@ -378,7 +425,7 @@ export class BuddyAgent {
             content: assembler.blocks(),
             source: {
                 provider: PROVIDER,
-                model: this.options.buddyModel ?? this.options.model ?? DEFAULT_MODEL,
+                model: this._resolveModel(),
             },
         });
         const seq = this.session.append('assistant/message', {

@@ -33,6 +33,11 @@
       config:
         buddyMaxTurns: 30
         agents: []
+    # 2b. CodeBuddy 模型目录进 dsh 的 LLM 注册表：设置页出现 CodeBuddy
+    #     卡片，UI 模型选择器出现官方模型分组；选择落为 model/selection
+    #     会话事件，buddy-loop 每回合增量截获。真实流式仍由 buddy-loop 驱动。
+    - id: buddy-llm-codebuddy
+      name: ./buddy-loop/lib/llm.js
 
 # 3. pi-ai stays unmounted: dormant in base (zero routes without a settings
 #    section) and its dependency closure is not installed in this workspace —

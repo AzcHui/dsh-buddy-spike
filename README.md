@@ -63,6 +63,7 @@ dsh web                       # = dsh --profile web
 换心后的 CodeBuddy 是个黑盒，但它的私有参数不必去改配置文件——插件自带一个设置面板（"买电视附赠的遥控器"，页面名叫**控制台**）：
 
 - **入口**：Web UI 设置页 → 「CodeBuddy 控制台」分区
+- **模型入口有两个**：① 控制台的全局默认下拉（对所有新会话生效）；② **dsh 原生模型选择器**——插件同时注册了 `codebuddy` 适配器路由（官方 LLM 适配器契约，`listModels()` 公布 19 个官方模型），设置页「模型」出现 CodeBuddy 卡片、`/model` 弹窗与输入框模型位出现 CodeBuddy 分组，选中即落为该会话的 `model/selection` 事件，下一回合生效（仅 `provider: codebuddy` 的选择会被跟随；选 DeepSeek 系模型时 CodeBuddy 无法承载，保持现状）
 - **可调项**：`model`（下拉，官方支持清单）/ 思考模式 `thinking`（自适应/固定预算/关闭）/ `maxTurns` / 工作目录 `cwd` / 环境变量 `env` / 系统提示词 `systemPrompt`（追加或覆盖）
 - **模型清单**（`codebuddy --help` 实测）：`fast-model` / `balanced-model` / `deep-model` / `glm-5.3` / `glm-5.3-flash` / `glm-5.2` / `glm-5.1` / `glm-5v-turbo` / `deepseek-v4-pro` / `deepseek-v4.1-flash` / `kimi-k3-1` / `kimi-k2.8-preview` / `kimi-k2.7` / `kimi-k2.6` / `minimax-m3` / `hy4-preview(-f)` / `hy3` / `hy3-x`，另支持手输自定义模型 ID
 - **生效时机**：保存后对新会话即时生效，无需重启 dsh；清空字段即回退 CLI 默认
@@ -76,6 +77,7 @@ dsh web                       # = dsh --profile web
 - **官方换件入口**：dsh 的 `cordis.patch.yml` 支持按 id 覆盖插件行 —— 禁用 `agent-loop` 行 + `insert` 新行挂自定义工厂（服务名同为 `agentLoop`，消费者无感知）
 - **patch 不能换名**：overlay 行的 `name` 与目标行不同会被静默跳过，只能"禁用旧行 + insert 新行"
 - **标准 bundle 形态**：package.json 声明 `dsh.bundle.patch` → `dsh plugin add` 安装进 profile、自动加入 bundles 层栈，启动不再需要 `--patch`；patch 行用裸包名 `name: dsh-buddy`（bundle 已在 profile node_modules，Node 解析可达）
+- **同包三面**：一个 bundle 同时是 ①组合包（禁用原生 loop + 插入 buddy-loop）、②LLM 适配器（`./llm` 子路径导出，注册 `codebuddy` 路由 + 模型目录，`stream()` 故意抛 `CODEBUDDY_SDK_DRIVEN`——真实对话由 SDK 驱动，适配器只承担目录与选择校验）、③控制台（`./client` 子路径导出 + `dsh.client` 声明）
 - **cordis 单例三重保障**：`@deepseek-ai/*` 全部声明 peerDependencies（profile 配 `autoInstallPeers: false` 不会本地安装）→ 解析链落到 dsh 维护的 `$DSH_HOME/profiles/node_modules` 后备目录 → 其链接直指宿主安装的真实包。schemastery 另有 `Symbol.for` 全局注册表兜底
 - **外挂依赖自持**：bundle 的非宿主依赖（`@tencent-ai/agent-sdk`）装在插件包自己的 `node_modules` 里（ESM 沿链接路径解析时最先命中），不污染宿主、不依赖 registry 状态
 - **层叠规则**（文档明载）：后应用的层按行胜出；patch 替换目标行整个 `config` 而非深度合并，覆盖时必须重述该行所有键
