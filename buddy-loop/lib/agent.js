@@ -131,6 +131,10 @@ export class BuddyAgent {
     _selectionScanCount = 0;
     /** Last turn number used in this session（对齐原生 loop 的 turnBoundary 语义）. */
     _lastTurn = 0;
+    /** CodeBuddy CLI 侧实际会话 id（init 消息回传，可能与 dsh 会话 id 不同）. */
+    _buddyCliSessionId;
+    /** Whether a CodeBuddy query has been issued in this process for this session. */
+    _buddySessionLive = false;
 
     constructor(loopCtx, id, options, session) {
         this.loopCtx = loopCtx;
@@ -373,7 +377,14 @@ export class BuddyAgent {
         this.dispatch.emit('agent/assistant-stream', {
             frame: { type: 'start', attemptId, revision: nextRevision(), turn, step },
         });
-        try {
+        // dsh 会话 id 直接作为 CodeBuddy 会话 id（1:1 映射，跨进程重启可续）：
+        // 会话已有历史（进程重启恢复，或本进程已发出过查询）则 resume 续聊，
+        // 否则以该 id 新建。缺省行为是不带历史——每次 query 都是失忆开局，
+        // 模型只看得到当前这一条消息。
+        const resumeId = (this._buddySessionLive || this._lastTurn > 0)
+            ? (this._buddyCliSessionId ?? this.session.id)
+            : undefined;
+        const consume = async (resume) => {
             const model = this._resolveModel();
             const conversation = query({
                 prompt,
@@ -381,6 +392,7 @@ export class BuddyAgent {
                     maxTurns: this.options.buddyMaxTurns ?? 10,
                     includePartialMessages: true,
                     model,
+                    ...(resume === undefined ? { sessionId: this.session.id } : { resume }),
                     ...(this.options.buddyCwd === undefined ? {} : { cwd: this.options.buddyCwd }),
                     ...(this.options.buddyThinking === undefined ? {} : { thinking: this.options.buddyThinking }),
                     ...(this.options.buddyEnv === undefined ? {} : { env: this.options.buddyEnv }),
@@ -389,7 +401,10 @@ export class BuddyAgent {
             });
             for await (const msg of conversation) {
                 signal.throwIfAborted();
-                if (msg.type === 'stream_event') {
+                if (msg.type === 'system' && msg.subtype === 'init') {
+                    // 记录 CLI 侧实际会话 id，后续 resume 以它为准
+                    this._buddyCliSessionId = msg.session_id;
+                } else if (msg.type === 'stream_event') {
                     const event = msg.event;
                     const delta = event?.delta;
                     if (event?.type === 'content_block_delta' && delta) {
@@ -424,14 +439,29 @@ export class BuddyAgent {
                     }
                 }
             }
-        } catch (error) {
-            if (!signal.aborted && failure === undefined) {
-                failure = {
-                    message: error instanceof Error ? error.message : String(error),
-                    code: 'CODEBUDDY_QUERY',
-                };
+        };
+        const attempt = async (resume) => {
+            try {
+                await consume(resume);
+                return true;
+            } catch (error) {
+                if (!signal.aborted && failure === undefined) {
+                    failure = {
+                        message: error instanceof Error ? error.message : String(error),
+                        code: 'CODEBUDDY_QUERY',
+                    };
+                }
+                return false;
             }
+        };
+        const ok = await attempt(resumeId);
+        // resume 失败且没有任何流式输出 → CodeBuddy 侧转录已失效（被清理，
+        // 或本修复之前的历史没有对应转录），降级为新建会话重试一次（无损重试）。
+        if (!ok && resumeId !== undefined && !signal.aborted && !streamedText) {
+            failure = undefined;
+            await attempt(undefined);
         }
+        this._buddySessionLive = true;
         signal.throwIfAborted();
         // Fallback: no partial deltas arrived — commit the final text as one delta.
         if (!streamedText && lastAssistantText !== '') {
