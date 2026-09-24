@@ -324,6 +324,30 @@ export class BuddyAgent {
         return this.options.buddyModel ?? this.options.model ?? DEFAULT_MODEL;
     }
 
+    /**
+     * CodeBuddy 工具权限桥。缺省自动批准——dsh 侧审批面桥接尚未实现，
+     * 不挂 handler 时 SDK 会拒绝一切工具调用（"No permission handler
+     * provided"）。每次请求都落黑匣子留审计；控制台 buddy.autoApprove=false
+     * 可改为全部拒绝。正式审批面桥接见《换心手术全记录》路线图。
+     */
+    async _handleToolPermission(toolName, input) {
+        const allow = this.options.buddyAutoApprove !== false;
+        let inputSummary;
+        try {
+            inputSummary = JSON.stringify(input)?.slice(0, 200);
+        } catch {
+            inputSummary = '[unserializable]';
+        }
+        buddyLog('tool-permission', {
+            session: this.session.id,
+            tool: toolName,
+            decision: allow ? 'allow' : 'deny',
+            inputSummary,
+        });
+        if (allow) return { behavior: 'allow' };
+        return { behavior: 'deny', message: 'dsh-buddy: 控制台已关闭工具自动批准（autoApprove=false）' };
+    }
+
     /** One turn = claim one queued user message and run one CodeBuddy query. */
     async turn() {
         const phase = this.phase;
@@ -447,6 +471,8 @@ export class BuddyAgent {
                         ...(this.options.buddyThinking === undefined ? {} : { thinking: this.options.buddyThinking }),
                         ...(this.options.buddyEnv === undefined ? {} : { env: this.options.buddyEnv }),
                         ...(this.options.buddySystemPrompt === undefined ? {} : { systemPrompt: this.options.buddySystemPrompt }),
+                        ...(this.options.buddyPermissionMode === undefined ? {} : { permissionMode: this.options.buddyPermissionMode }),
+                        canUseTool: (toolName, input) => this._handleToolPermission(toolName, input),
                         abortController: controller,
                     },
                 });

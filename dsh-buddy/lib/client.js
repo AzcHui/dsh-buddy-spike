@@ -12,7 +12,7 @@
  * react 等平台单例由宿主种子模块表经 require 注入。
  */
 window.__ModuleLoader__.load({
-    id: "dsh-buddy",
+    id: "dsh-buddy-loop",
     factory: (require) => {
         const React = require("react");
 
@@ -46,6 +46,14 @@ window.__ModuleLoader__.load({
             { value: "adaptive", label: "自适应思考（adaptive）" },
             { value: "enabled", label: "固定预算（enabled）" },
             { value: "disabled", label: "关闭思考（disabled）" },
+        ];
+        const PERMISSION_OPTIONS = [
+            { value: "", label: "默认（跟随 CLI 配置）" },
+            { value: "default", label: "default — 标准审批流" },
+            { value: "acceptEdits", label: "acceptEdits — 自动接受文件编辑" },
+            { value: "bypassPermissions", label: "bypassPermissions — 跳过全部审批" },
+            { value: "plan", label: "plan — 只读规划" },
+            { value: "dontAsk", label: "dontAsk — 不询问" },
         ];
 
         const styles = {
@@ -103,6 +111,8 @@ window.__ModuleLoader__.load({
                     ? String(config.thinking.budgetTokens)
                     : "32000",
                 envText: envToText(config.env),
+                autoApprove: config.autoApprove === false ? "off" : "on",
+                permissionMode: typeof config.permissionMode === "string" ? config.permissionMode : "",
                 spMode: config.systemPrompt && typeof config.systemPrompt === "object" ? "append" : "override",
                 spText: typeof config.systemPrompt === "string"
                     ? config.systemPrompt
@@ -128,6 +138,8 @@ window.__ModuleLoader__.load({
             }
             const env = textToEnv(form.envText);
             if (Object.keys(env).length > 0) payload.env = env;
+            if (form.autoApprove === "off") payload.autoApprove = false;
+            if (form.permissionMode !== "") payload.permissionMode = form.permissionMode;
             if (form.spText.trim() !== "") payload.systemPrompt = { mode: form.spMode, text: form.spText.trim() };
             return payload;
         }
@@ -200,6 +212,13 @@ window.__ModuleLoader__.load({
                 row("环境变量 env", "每行 KEY=VALUE，# 开头为注释", React.createElement("textarea", {
                     style: { ...styles.input, ...styles.area }, value: form.envText, onChange: set("envText"), rows: 3,
                 })),
+                row("工具自动批准 autoApprove", "关闭后 CodeBuddy 的工具调用全部被拒；每次批准/拒绝都记录在运行日志（$DSH_HOME/logs/dsh-buddy.log）",
+                    React.createElement("select", { style: styles.input, value: form.autoApprove, onChange: set("autoApprove") },
+                        React.createElement("option", { value: "on" }, "开 — 自动批准（当前 dsh 无审批面，推荐）"),
+                        React.createElement("option", { value: "off" }, "关 — 全部拒绝"))),
+                row("权限模式 permissionMode", "透传 CodeBuddy CLI 的审批策略；留空 = 跟随 CLI 默认",
+                    React.createElement("select", { style: styles.input, value: form.permissionMode, onChange: set("permissionMode") },
+                        PERMISSION_OPTIONS.map((option) => React.createElement("option", { key: option.value, value: option.value }, option.label)))),
                 row("系统提示词 systemPrompt", "", React.createElement("select", { style: styles.input, value: form.spMode, onChange: set("spMode") },
                     React.createElement("option", { value: "append" }, "追加到默认提示词（append）"),
                     React.createElement("option", { value: "override" }, "完全覆盖（override）"))),

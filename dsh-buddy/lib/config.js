@@ -17,6 +17,8 @@ export const BUDDY_CONFIG_ROUTE = '/api/buddy/config';
 const CONFIG_PATH = join(dirname(fileURLToPath(import.meta.url)), '..', 'buddy-config.json');
 
 const THINKING_TYPES = new Set(['adaptive', 'enabled', 'disabled']);
+/** SDK PermissionMode 全集（types.d.ts）。 */
+const PERMISSION_MODES = new Set(['default', 'acceptEdits', 'bypassPermissions', 'plan', 'delegate', 'dontAsk', 'fullAccess']);
 const MAX_BODY_BYTES = 64 * 1024;
 
 function isPlainObject(value) {
@@ -34,7 +36,7 @@ export function normalizeBuddyConfig(raw) {
     const errors = [];
     if (raw === undefined || raw === null) return { config, errors };
     if (!isPlainObject(raw)) return { config, errors: ['配置必须是一个 JSON 对象'] };
-    const { model, maxTurns, cwd, thinking, env, systemPrompt, ...rest } = raw;
+    const { model, maxTurns, cwd, thinking, env, systemPrompt, autoApprove, permissionMode, ...rest } = raw;
     const unknown = Object.keys(rest);
     if (unknown.length > 0) errors.push(`未知字段：${unknown.join(', ')}`);
     if (model !== undefined) {
@@ -73,6 +75,17 @@ export function normalizeBuddyConfig(raw) {
             }
             if (bad) errors.push('env 的键必须是非空字符串、值必须是字符串');
             else if (Object.keys(clean).length > 0) config.env = clean;
+        }
+    }
+    if (autoApprove !== undefined) {
+        if (typeof autoApprove !== 'boolean') errors.push('autoApprove 必须是布尔值');
+        else config.autoApprove = autoApprove;
+    }
+    if (permissionMode !== undefined) {
+        if (typeof permissionMode !== 'string' || !PERMISSION_MODES.has(permissionMode)) {
+            errors.push(`permissionMode 必须是 ${[...PERMISSION_MODES].join('|')} 之一`);
+        } else {
+            config.permissionMode = permissionMode;
         }
     }
     if (systemPrompt !== undefined) {

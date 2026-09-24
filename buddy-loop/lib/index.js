@@ -76,6 +76,8 @@ var BuddyLoop = class BuddyLoop extends Service {
             ...(buddy.thinking === undefined ? {} : { buddyThinking: buddy.thinking }),
             ...(buddy.env === undefined ? {} : { buddyEnv: buddy.env }),
             ...(buddy.systemPrompt === undefined ? {} : { buddySystemPrompt: buddy.systemPrompt }),
+            ...(buddy.autoApprove === undefined ? {} : { buddyAutoApprove: buddy.autoApprove }),
+            ...(buddy.permissionMode === undefined ? {} : { buddyPermissionMode: buddy.permissionMode }),
             ...(options.agentOptions ?? {}),
         };
     }
