@@ -21,9 +21,14 @@ import {
 import { SessionLogOffset } from '@deepseek-ai/dsh-session';
 import { createScope } from '@deepseek-ai/dsh-scope';
 import { query } from '@tencent-ai/agent-sdk';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const PROVIDER = 'codebuddy';
 const DEFAULT_MODEL = 'codebuddy';
+/** CLI 启动看门狗：超时未产出任何消息则中止本次查询（防 resume 挂死）。 */
+const INIT_WATCHDOG_MS = 60_000;
 
 /** Flatten one dsh UserMessage into the plain prompt text CodeBuddy expects. */
 function textOfUserMessage(message) {
@@ -169,6 +174,22 @@ export class BuddyAgent {
         } catch {
             return 0; // 日志不可用时从 1 起编，绝不阻塞回合
         }
+    }
+
+    /**
+     * 检查 CodeBuddy CLI 侧是否存有该会话 id 的转录
+     * （~/.codebuddy/projects/<cwd-slug>/<session-id>.jsonl）。
+     * resume 不存在的转录会让 CLI 静默挂死（不报错），因此 resume 前必须校验。
+     * 布局探测失败时返回 false——降级为新建会话，宁可失忆也不挂死。
+     */
+    _codebuddyTranscriptExists(sessionId) {
+        try {
+            const projectsDir = path.join(os.homedir(), '.codebuddy', 'projects');
+            for (const entry of fs.readdirSync(projectsDir)) {
+                if (fs.existsSync(path.join(projectsDir, entry, `${sessionId}.jsonl`))) return true;
+            }
+        } catch { /* 布局变化/无目录：放弃续聊 */ }
+        return false;
     }
 
     get status() {
@@ -378,33 +399,51 @@ export class BuddyAgent {
             frame: { type: 'start', attemptId, revision: nextRevision(), turn, step },
         });
         // dsh 会话 id 直接作为 CodeBuddy 会话 id（1:1 映射，跨进程重启可续）：
-        // 会话已有历史（进程重启恢复，或本进程已发出过查询）则 resume 续聊，
-        // 否则以该 id 新建。缺省行为是不带历史——每次 query 都是失忆开局，
-        // 模型只看得到当前这一条消息。
-        const resumeId = (this._buddySessionLive || this._lastTurn > 0)
-            ? (this._buddyCliSessionId ?? this.session.id)
+        // 会话已有历史（进程重启恢复，或本进程已发出过查询）且 CLI 侧转录确实
+        // 存在时 resume 续聊；否则以该 id 新建。resume 不存在的转录 CLI 会静默
+        // 挂死而不是报错，所以必须前置校验转录文件（bug 09f1927 实测踩坑）。
+        const wantResume = this._buddySessionLive || this._lastTurn > 0;
+        const resumeTarget = this._buddyCliSessionId ?? this.session.id;
+        const resumeId = wantResume && this._codebuddyTranscriptExists(resumeTarget)
+            ? resumeTarget
             : undefined;
         const consume = async (resume) => {
-            const model = this._resolveModel();
-            const conversation = query({
-                prompt,
-                options: {
-                    maxTurns: this.options.buddyMaxTurns ?? 10,
-                    includePartialMessages: true,
-                    model,
-                    ...(resume === undefined ? { sessionId: this.session.id } : { resume }),
-                    ...(this.options.buddyCwd === undefined ? {} : { cwd: this.options.buddyCwd }),
-                    ...(this.options.buddyThinking === undefined ? {} : { thinking: this.options.buddyThinking }),
-                    ...(this.options.buddyEnv === undefined ? {} : { env: this.options.buddyEnv }),
-                    ...(this.options.buddySystemPrompt === undefined ? {} : { systemPrompt: this.options.buddySystemPrompt }),
-                },
-            });
-            for await (const msg of conversation) {
-                signal.throwIfAborted();
-                if (msg.type === 'system' && msg.subtype === 'init') {
-                    // 记录 CLI 侧实际会话 id，后续 resume 以它为准
-                    this._buddyCliSessionId = msg.session_id;
-                } else if (msg.type === 'stream_event') {
+            const controller = new AbortController();
+            const onOuterAbort = () => controller.abort(signal.reason);
+            if (signal.aborted) controller.abort(signal.reason);
+            else signal.addEventListener('abort', onOuterAbort, { once: true });
+            // 启动看门狗：收到 CLI 第一条消息即解除；超时则中止（转降级路径）
+            let watchdog = setTimeout(
+                () => controller.abort(new Error(`CodeBuddy CLI ${INIT_WATCHDOG_MS / 1000}s 无响应，中止本次查询`)),
+                INIT_WATCHDOG_MS,
+            );
+            const disarm = () => {
+                clearTimeout(watchdog);
+                watchdog = undefined;
+            };
+            try {
+                const model = this._resolveModel();
+                const conversation = query({
+                    prompt,
+                    options: {
+                        maxTurns: this.options.buddyMaxTurns ?? 10,
+                        includePartialMessages: true,
+                        model,
+                        ...(resume === undefined ? { sessionId: this.session.id } : { resume }),
+                        ...(this.options.buddyCwd === undefined ? {} : { cwd: this.options.buddyCwd }),
+                        ...(this.options.buddyThinking === undefined ? {} : { thinking: this.options.buddyThinking }),
+                        ...(this.options.buddyEnv === undefined ? {} : { env: this.options.buddyEnv }),
+                        ...(this.options.buddySystemPrompt === undefined ? {} : { systemPrompt: this.options.buddySystemPrompt }),
+                        abortController: controller,
+                    },
+                });
+                for await (const msg of conversation) {
+                    signal.throwIfAborted();
+                    disarm();
+                    if (msg.type === 'system' && msg.subtype === 'init') {
+                        // 记录 CLI 侧实际会话 id，后续 resume 以它为准
+                        this._buddyCliSessionId = msg.session_id;
+                    } else if (msg.type === 'stream_event') {
                     const event = msg.event;
                     const delta = event?.delta;
                     if (event?.type === 'content_block_delta' && delta) {
@@ -438,6 +477,10 @@ export class BuddyAgent {
                         };
                     }
                 }
+                }
+            } finally {
+                if (watchdog !== undefined) clearTimeout(watchdog);
+                signal.removeEventListener('abort', onOuterAbort);
             }
         };
         const attempt = async (resume) => {
