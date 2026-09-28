@@ -20,30 +20,11 @@ window.__ModuleLoader__.load({
         const React = require("react");
 
         const ROUTE = "/api/buddy/config";
-        // codebuddy CLI --model 官方支持清单（codebuddy --help，2026-09 实测）
-        const MODEL_OPTIONS = [
-            { value: "", label: "默认（跟随 CLI 配置）" },
-            { value: "fast-model", label: "fast-model — 快速" },
-            { value: "balanced-model", label: "balanced-model — 均衡" },
-            { value: "deep-model", label: "deep-model — 深度推理" },
-            { value: "glm-5.3", label: "glm-5.3" },
-            { value: "glm-5.3-flash", label: "glm-5.3-flash" },
-            { value: "glm-5.2", label: "glm-5.2" },
-            { value: "glm-5.1", label: "glm-5.1" },
-            { value: "glm-5v-turbo", label: "glm-5v-turbo" },
-            { value: "deepseek-v4-pro", label: "deepseek-v4-pro" },
-            { value: "deepseek-v4.1-flash", label: "deepseek-v4.1-flash" },
-            { value: "kimi-k3-1", label: "kimi-k3-1" },
-            { value: "kimi-k2.8-preview", label: "kimi-k2.8-preview" },
-            { value: "kimi-k2.7", label: "kimi-k2.7" },
-            { value: "kimi-k2.6", label: "kimi-k2.6" },
-            { value: "minimax-m3", label: "minimax-m3" },
-            { value: "hy4-preview", label: "hy4-preview" },
-            { value: "hy4-preview-f", label: "hy4-preview-f" },
-            { value: "hy3", label: "hy3" },
-            { value: "hy3-x", label: "hy3-x" },
-            { value: "__custom__", label: "自定义…（手输模型 ID）" },
-        ];
+        const MODELS_REFRESH_ROUTE = "/api/buddy/models/refresh";
+        // 模型下拉框不再硬编码：目录由服务端 catalog.js 维护（codebuddy --help
+        // 启动时自动解析 + 控制台手动刷新），经 GET 路由动态下发。
+        const CUSTOM_MODEL = "__custom__";
+        const FALLBACK_CATALOG = [];
         const THINKING_OPTIONS = [
             { value: "", label: "默认（跟随 CLI 配置）" },
             { value: "adaptive", label: "自适应思考（adaptive）" },
@@ -100,13 +81,26 @@ window.__ModuleLoader__.load({
             return env;
         }
 
+        /** 服务端目录 → 下拉框选项（默认项 + 目录 + 自定义项）。 */
+        function modelOptions(catalog) {
+            const entries = Array.isArray(catalog) ? catalog : FALLBACK_CATALOG;
+            return [
+                { value: "", label: "默认（跟随 CLI 配置）" },
+                ...entries.map((entry) => ({
+                    value: entry.id,
+                    label: entry.name === entry.id ? entry.id : `${entry.name}（${entry.id}）`,
+                })),
+                { value: CUSTOM_MODEL, label: "自定义…（手输模型 ID）" },
+            ];
+        }
+
         /** 服务端配置 → 表单状态（与服务端 wire 形态解耦）。 */
-        function hydrateForm(config) {
+        function hydrateForm(config, catalog) {
             const model = typeof config.model === "string" ? config.model : "";
-            const known = MODEL_OPTIONS.some((option) => option.value === model && option.value !== "__custom__");
+            const known = modelOptions(catalog).some((option) => option.value === model && option.value !== CUSTOM_MODEL);
             return {
                 model,
-                modelChoice: model === "" ? "" : (known ? model : "__custom__"),
+                modelChoice: model === "" ? "" : (known ? model : CUSTOM_MODEL),
                 maxTurns: typeof config.maxTurns === "number" ? String(config.maxTurns) : "",
                 cwd: typeof config.cwd === "string" ? config.cwd : "",
                 thinkingType: config.thinking && typeof config.thinking.type === "string" ? config.thinking.type : "",
@@ -126,7 +120,7 @@ window.__ModuleLoader__.load({
         /** 表单状态 → 服务端 wire 载荷；空字段 = 移除该项覆盖。 */
         function buildPayload(form) {
             const payload = {};
-            if (form.modelChoice === "__custom__") {
+            if (form.modelChoice === CUSTOM_MODEL) {
                 if (form.model.trim() !== "") payload.model = form.model.trim();
             } else if (form.modelChoice !== "") {
                 payload.model = form.modelChoice;
@@ -149,8 +143,16 @@ window.__ModuleLoader__.load({
 
         function BuddyRemotePanel() {
             const [form, setForm] = React.useState(null);
+            const [catalog, setCatalog] = React.useState(FALLBACK_CATALOG);
+            const [runtime, setRuntime] = React.useState(null);
             const [status, setStatus] = React.useState({ kind: "loading", text: "正在加载配置…" });
             const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+
+            const applyBody = (body) => {
+                if (Array.isArray(body.catalog)) setCatalog(body.catalog);
+                setRuntime(body.runtime ?? null);
+                setForm(hydrateForm(body.config ?? {}, body.catalog));
+            };
 
             React.useEffect(() => {
                 let alive = true;
@@ -159,7 +161,7 @@ window.__ModuleLoader__.load({
                     .then((body) => {
                         if (!alive) return;
                         if (!body.ok) throw new Error(body.error || "unknown");
-                        setForm(hydrateForm(body.config ?? {}));
+                        applyBody(body);
                         setStatus({ kind: "idle", text: "" });
                     })
                     .catch((error) => {
@@ -182,11 +184,37 @@ window.__ModuleLoader__.load({
                     .then((response) => response.json())
                     .then((body) => {
                         if (!body.ok) throw new Error(body.error || "unknown");
-                        setForm(hydrateForm(body.config ?? {}));
-                        setStatus({ kind: "ok", text: "已保存 — 对新会话生效" });
+                        applyBody(body);
+                        const back = body.writeBack && body.writeBack.model
+                            ? `；已同步到会话 ${String(body.writeBack.sessionId).slice(0, 8)}…`
+                            : (body.writeBack && body.writeBack.error ? `；会话同步失败：${body.writeBack.error}` : "");
+                        setStatus({ kind: "ok", text: "已保存 — 对新会话生效" + back });
                     })
                     .catch((error) => {
                         setStatus({ kind: "error", text: "保存失败：" + (error?.message ?? error) });
+                    });
+            };
+
+            const refreshModels = () => {
+                setStatus({ kind: "busy", text: "正在读取 codebuddy --help…" });
+                fetch(MODELS_REFRESH_ROUTE, { method: "POST" })
+                    .then((response) => response.json())
+                    .then((body) => {
+                        if (!body.ok) throw new Error(body.error || "unknown");
+                        // 刷新响应不含 config：只更新目录与状态行，避免清掉未保存的表单。
+                        if (Array.isArray(body.catalog)) setCatalog(body.catalog);
+                        setRuntime(body.runtime ?? null);
+                        const refresh = body.refresh ?? {};
+                        if (refresh.ok === false) {
+                            setStatus({ kind: "error", text: "刷新失败：" + (refresh.reason ?? "unknown") + "（已保留现有目录）" });
+                        } else if (refresh.changed) {
+                            setStatus({ kind: "ok", text: `目录已更新：+${refresh.added.length} / -${refresh.removed.length}（聊天框选择器刷新页面后生效）` });
+                        } else {
+                            setStatus({ kind: "ok", text: "目录无变化" });
+                        }
+                    })
+                    .catch((error) => {
+                        setStatus({ kind: "error", text: "刷新失败：" + (error?.message ?? error) });
                     });
             };
 
@@ -196,13 +224,30 @@ window.__ModuleLoader__.load({
                 control,
                 hint ? React.createElement("span", { style: styles.hint }, hint) : null);
 
+            // 模型对齐状态：会话选择（聊天框/控制台写回的 model/selection）与
+            // CLI 实际生效值。选了 dsh 自带模型时如实标注"CLI 不承载"。
+            const alignmentRows = [];
+            if (runtime) {
+                const selection = runtime.sessionSelection;
+                const selectionText = selection
+                    ? (selection.provider === "codebuddy"
+                        ? `${selection.model}（CodeBuddy）`
+                        : `${selection.provider} / ${selection.model} — dsh 自带模型，CLI 不承载，实际按下行`)
+                    : "（无会话级选择 — 跟随下方默认值）";
+                alignmentRows.push(row("会话选择（双向同步）", "聊天框或本控制台最近一次选择；对新会话不生效", React.createElement("div", { style: styles.hint }, selectionText)));
+                alignmentRows.push(row("CLI 实际生效", "本次对话真正使用的模型；留空配置时即 CLI 默认", React.createElement("div", { style: styles.hint }, runtime.effectiveModel ?? "（CLI 默认）")));
+            }
+
+            const options = modelOptions(catalog);
+
             return React.createElement("div", { style: styles.section },
                 React.createElement("p", { style: styles.hint },
                     "CodeBuddy 私有配置（dsh 自身设置不受影响）。保存后对新会话生效；清空字段即移除该项覆盖。"),
-                row("模型 model", "来自 codebuddy CLI 官方支持清单；留空 = CLI 默认",
+                ...alignmentRows,
+                row("模型 model", "目录来自 codebuddy CLI（启动时自动解析，可手动刷新）；留空 = CLI 默认",
                     React.createElement("select", { style: styles.input, value: form.modelChoice, onChange: set("modelChoice") },
-                        MODEL_OPTIONS.map((option) => React.createElement("option", { key: option.value, value: option.value }, option.label)))),
-                form.modelChoice === "__custom__"
+                        options.map((option) => React.createElement("option", { key: option.value, value: option.value }, option.label)))),
+                form.modelChoice === CUSTOM_MODEL
                     ? row("自定义模型 ID", "", input({ value: form.model, onChange: set("model"), placeholder: "填 codebuddy 支持的模型 ID" }))
                     : null,
                 row("回合上限 maxTurns", "", input({ value: form.maxTurns, onChange: set("maxTurns"), inputMode: "numeric", placeholder: "30" })),
@@ -231,6 +276,7 @@ window.__ModuleLoader__.load({
                 }),
                 React.createElement("div", { style: styles.footer },
                     React.createElement("button", { style: styles.button, onClick: save, disabled: status.kind === "busy" }, "保存配置"),
+                    React.createElement("button", { style: styles.button, onClick: refreshModels, disabled: status.kind === "busy" }, "刷新模型目录"),
                     status.text !== "" ? React.createElement("span", { style: status.kind === "error" ? styles.error : styles.hint }, status.text) : null),
             );
         }

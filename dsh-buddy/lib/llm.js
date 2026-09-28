@@ -15,31 +15,9 @@
  */
 import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm';
 import z from '@deepseek-ai/schemastery';
+import { getModelCatalog } from './catalog.js';
 
 const PROVIDER = 'codebuddy';
-
-/** codebuddy CLI `--model` 官方支持清单（`codebuddy --help`，2026-09 实测）。 */
-const MODEL_CATALOG = [
-    { id: 'fast-model', name: 'Fast（快速）', description: '轻量快速，适合简单任务' },
-    { id: 'balanced-model', name: 'Balanced（均衡）', description: '速度与能力均衡的默认档' },
-    { id: 'deep-model', name: 'Deep（深度）', description: '深度推理，适合复杂任务' },
-    { id: 'glm-5.3', name: 'GLM-5.3' },
-    { id: 'glm-5.3-flash', name: 'GLM-5.3-Flash' },
-    { id: 'glm-5.2', name: 'GLM-5.2' },
-    { id: 'glm-5.1', name: 'GLM-5.1' },
-    { id: 'glm-5v-turbo', name: 'GLM-5V-Turbo' },
-    { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
-    { id: 'deepseek-v4.1-flash', name: 'DeepSeek-V4.1-Flash' },
-    { id: 'kimi-k3-1', name: 'Kimi-K3.1' },
-    { id: 'kimi-k2.8-preview', name: 'Kimi-K2.8-Preview' },
-    { id: 'kimi-k2.7', name: 'Kimi-K2.7' },
-    { id: 'kimi-k2.6', name: 'Kimi-K2.6' },
-    { id: 'minimax-m3', name: 'MiniMax-M3' },
-    { id: 'hy4-preview', name: 'HY4-Preview' },
-    { id: 'hy4-preview-f', name: 'HY4-Preview-F' },
-    { id: 'hy3', name: 'HY3' },
-    { id: 'hy3-x', name: 'HY3-X' },
-];
 
 /**
  * CodeBuddy 目录适配器：只回答"有哪些模型 / 这个模型身份是否可用"，
@@ -54,9 +32,9 @@ class CodeBuddyLlmAdapter extends LlmAdapter {
         );
     }
 
-    /** 向选择器公布模型目录（selector catalog membership is advisory）。 */
+    /** 向选择器公布模型目录（catalog membership is advisory；目录可被 CLI 刷新动态更新）。 */
     async listModels() {
-        return MODEL_CATALOG.map((model) => ({
+        return getModelCatalog().map((model) => ({
             provider: PROVIDER,
             id: model.id,
             name: model.name,
@@ -74,7 +52,7 @@ class CodeBuddyLlmAdapter extends LlmAdapter {
         if (provider !== PROVIDER) {
             throw new LlmError(`unknown provider route "${provider}"`, 'UNKNOWN_PROVIDER');
         }
-        const entry = MODEL_CATALOG.find((m) => m.id === model);
+        const entry = getModelCatalog().find((item) => item.id === model);
         return {
             provider: PROVIDER,
             id: model,

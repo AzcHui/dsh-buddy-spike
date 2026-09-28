@@ -9,9 +9,15 @@
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, fsyncSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getModelCatalog, refreshCatalogFromCli } from './catalog.js';
+import { buddyRuntime } from './state.js';
+import { buddyLog } from './log.js';
 
 /** 遥控器同源路由。 */
 export const BUDDY_CONFIG_ROUTE = '/api/buddy/config';
+
+/** 模型目录手动刷新端点（控制台"刷新模型目录"按钮）。 */
+export const BUDDY_MODELS_REFRESH_ROUTE = '/api/buddy/models/refresh';
 
 /** 配置文件位置：包根目录（与 lib/ 同级），随包走、随 profile 迁移。 */
 const CONFIG_PATH = join(dirname(fileURLToPath(import.meta.url)), '..', 'buddy-config.json');
@@ -178,6 +184,29 @@ function readBody(req) {
     });
 }
 
+/**
+ * 当前模型对齐状态（控制台"会话选择 / CLI 实际生效"两行）。
+ * latestAgent 由 agent.js 在构造与每次 turn() 时刷新、index.js dispose 清空。
+ */
+function buildModelState() {
+    const agent = buddyRuntime.latestAgent;
+    if (agent === null || agent === undefined) {
+        return { sessionId: null, sessionSelection: null, effectiveModel: null };
+    }
+    let sessionSelection = null;
+    const selection = agent.selectedModel;
+    if (selection && typeof selection.provider === 'string' && typeof selection.model === 'string') {
+        sessionSelection = { provider: selection.provider, model: selection.model };
+    }
+    let effectiveModel = null;
+    try {
+        effectiveModel = agent._resolveModel() ?? null;
+    } catch {
+        effectiveModel = null;
+    }
+    return { sessionId: agent.id, sessionSelection, effectiveModel };
+}
+
 /** 控制台配置路由：GET 读取、POST 校验落盘。 */
 export function makeBuddyConfigRoute() {
     return {
@@ -194,7 +223,12 @@ export function makeBuddyConfigRoute() {
             }
             try {
                 if (req.method === 'GET') {
-                    reply(200, { ok: true, config: loadBuddyConfig() });
+                    reply(200, {
+                        ok: true,
+                        config: loadBuddyConfig(),
+                        catalog: getModelCatalog(),
+                        runtime: buildModelState(),
+                    });
                     return;
                 }
                 if (req.method !== 'POST') {
@@ -203,9 +237,63 @@ export function makeBuddyConfigRoute() {
                 }
                 const raw = await readBody(req);
                 const config = saveBuddyConfig(raw);
-                reply(200, { ok: true, config });
+                // 双向同步（控制台 → 会话）：显式设置 model 时，写回最近活跃
+                // 会话的 model/selection（与 session-controller selectForNextRequest
+                // 同一落点），聊天框选择随之同步；清空 model 只改默认值，不追删
+                // 会话选择（事件日志无"取消选择"语义，控制台会如实显示现状）。
+                let writeBack = null;
+                if (config.model !== undefined) {
+                    const agent = buddyRuntime.latestAgent;
+                    if (agent) {
+                        try {
+                            agent.session.append('model/selection', { provider: 'codebuddy', model: config.model });
+                            writeBack = { sessionId: agent.id, model: config.model };
+                            buddyLog('model-writeback', { session: agent.id, model: config.model });
+                        } catch (error) {
+                            writeBack = { error: error instanceof Error ? error.message : String(error) };
+                        }
+                    }
+                }
+                reply(200, { ok: true, config, catalog: getModelCatalog(), runtime: buildModelState(), writeBack });
             } catch (error) {
                 reply(400, { ok: false, error: error instanceof Error ? error.message : String(error) });
+            }
+        },
+    };
+}
+
+/**
+ * 模型目录刷新路由：POST 跑一次 `codebuddy --help` 解析官方清单。
+ * 返回 { ok, changed?, added?, removed?, reason?, catalog, runtime }；
+ * 解析失败 ok:false 且目录保持现值。
+ */
+export function makeBuddyModelsRefreshRoute() {
+    return {
+        kind: 'exact',
+        path: BUDDY_MODELS_REFRESH_ROUTE,
+        async handler(req, res) {
+            const reply = (status, body) => {
+                res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+                res.end(JSON.stringify(body));
+            };
+            if (!sameOrigin(req)) {
+                reply(403, { ok: false, error: 'cross-site-request-rejected' });
+                return;
+            }
+            if (req.method !== 'POST') {
+                reply(405, { ok: false, error: 'method-not-allowed' });
+                return;
+            }
+            try {
+                const result = await refreshCatalogFromCli();
+                reply(200, {
+                    ok: true,
+                    refresh: result,
+                    catalog: getModelCatalog(),
+                    runtime: buildModelState(),
+                });
+            } catch (error) {
+                reply(500, { ok: false, error: error instanceof Error ? error.message : String(error) });
             }
         },
     };

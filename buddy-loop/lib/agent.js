@@ -22,6 +22,7 @@ import { SessionLogOffset } from '@deepseek-ai/dsh-session';
 import { createScope } from '@deepseek-ai/dsh-scope';
 import { query } from '@tencent-ai/agent-sdk';
 import { buddyLog } from './log.js';
+import { buddyRuntime } from './state.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -153,6 +154,8 @@ export class BuddyAgent {
         this.inbox = new QueueInbox(this);
         this.phase = { kind: 'idle' };
         this._lastTurn = this._recoverLastTurn();
+        // 控制台对齐状态与模型写回作用对象：最近构造的代理（turn() 时再刷新）。
+        buddyRuntime.latestAgent = this;
         buddyLog('agent-created', { session: id, recoveredLastTurn: this._lastTurn });
     }
 
@@ -473,6 +476,8 @@ export class BuddyAgent {
         phase.turn = turn;
         this._absorbModelSelection();
         this.session.append('turn/start', { turn });
+        // 用户在本会话发了消息 → 本代理成为"最近活跃"，控制台状态/写回以它为准。
+        buddyRuntime.latestAgent = this;
         buddyLog('turn-start', { session: this.session.id, turn });
         const entry = this.queue.shift();
         const message = entry?.message;

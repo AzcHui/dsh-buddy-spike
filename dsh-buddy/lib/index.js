@@ -20,7 +20,9 @@ import { emitAgentEvent } from '@deepseek-ai/dsh-agent';
 import { SessionLogOffset, SessionPreparation, interruptedTurnClosers } from '@deepseek-ai/dsh-session';
 import z from '@deepseek-ai/schemastery';
 import { BuddyAgent } from './agent.js';
-import { makeBuddyConfigRoute, loadBuddyConfig } from './config.js';
+import { makeBuddyConfigRoute, makeBuddyModelsRefreshRoute, loadBuddyConfig } from './config.js';
+import { refreshCatalogFromCli } from './catalog.js';
+import { buddyRuntime } from './state.js';
 
 /** Service name kept as 'agentLoop' so sibling services keep resolving. */
 const SERVICE_NAME = 'agentLoop';
@@ -52,7 +54,21 @@ var BuddyLoop = class BuddyLoop extends Service {
         // 控制台配置路由：webServer 缺席（纯 CLI 树）时保持等待，不阻塞本服务激活。
         ctx.inject(['webServer'], (webCtx) => {
             webCtx.effect(() => webCtx.webServer.register(makeBuddyConfigRoute()), 'buddyLoop: /api/buddy/config route');
+            webCtx.effect(() => webCtx.webServer.register(makeBuddyModelsRefreshRoute()), 'buddyLoop: /api/buddy/models/refresh route');
         });
+        // 启动时自动刷新一次 CodeBuddy 模型目录（codebuddy --help → Currently
+        // supported）。异步执行不阻塞启动；CLI 缺失/解析失败沿用兜底清单，
+        // 失败与变更都落黑匣子（model-catalog-refresh-failed / model-catalog-updated）。
+        ctx.effect(() => {
+            Promise.resolve()
+                .then(() => refreshCatalogFromCli())
+                .then((result) => {
+                    if (result.ok && result.changed) {
+                        this.ctx.logger.info(`buddy-loop: model catalog updated (+${result.added.length}/-${result.removed.length})`);
+                    }
+                })
+                .catch(() => { /* catalog.js 内部已兜底，不会走到这里 */ });
+        }, 'buddyLoop.startupModelCatalogRefresh');
         for (const entry of this.config.agents ?? []) {
             const { id, sessionId, cwd, buddyMaxTurns, ...options } = entry;
             const configuredId = sessionId ?? id;
@@ -146,6 +162,8 @@ var BuddyLoop = class BuddyLoop extends Service {
         const dispose = async () => {
             if (disposed) return;
             disposed = true;
+            // 会话销毁：若控制台"最近活跃"还指向它则摘除，避免路由读写死会话。
+            if (buddyRuntime.latestAgent === agent) buddyRuntime.latestAgent = null;
             try {
                 agent.cancel({ kind: 'disposed' });
                 await agent.whenIdle();
