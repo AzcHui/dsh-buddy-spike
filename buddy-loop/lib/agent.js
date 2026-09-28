@@ -154,9 +154,20 @@ export class BuddyAgent {
         this.inbox = new QueueInbox(this);
         this.phase = { kind: 'idle' };
         this._lastTurn = this._recoverLastTurn();
+        // CLI 工作目录：显式配置 > 会话 header.cwd（Web 建会话指定的工作目录）> 缺省（dsh 进程 cwd）。
+        this._buddyCwd = this._resolveCwd();
         // 控制台对齐状态与模型写回作用对象：最近构造的代理（turn() 时再刷新）。
         buddyRuntime.latestAgent = this;
-        buddyLog('agent-created', { session: id, recoveredLastTurn: this._lastTurn });
+        buddyLog('agent-created', { session: id, recoveredLastTurn: this._lastTurn, cwd: this._buddyCwd ?? null });
+    }
+
+    /** 有效 CLI cwd：显式 buddyCwd 优先，其次会话 header.cwd，都无则交 SDK 缺省。 */
+    _resolveCwd() {
+        const explicit = this.options.buddyCwd;
+        if (typeof explicit === 'string' && explicit.length > 0) return explicit;
+        const headerCwd = this.session?.header?.cwd;
+        if (typeof headerCwd === 'string' && headerCwd.length > 0) return headerCwd;
+        return undefined;
     }
 
     /**
@@ -581,6 +592,7 @@ export class BuddyAgent {
                     mode: resume === undefined ? 'create' : 'resume',
                     resumeId: resume,
                     promptLen: prompt.length,
+                    cwd: this._buddyCwd ?? null,
                 });
                 const conversation = query({
                     prompt,
@@ -589,7 +601,7 @@ export class BuddyAgent {
                         includePartialMessages: true,
                         model,
                         ...(resume === undefined ? { sessionId: this.session.id } : { resume }),
-                        ...(this.options.buddyCwd === undefined ? {} : { cwd: this.options.buddyCwd }),
+                        ...(this._buddyCwd === undefined ? {} : { cwd: this._buddyCwd }),
                         ...(this.options.buddyThinking === undefined ? {} : { thinking: this.options.buddyThinking }),
                         ...(this.options.buddyEnv === undefined ? {} : { env: this.options.buddyEnv }),
                         ...(this.options.buddySystemPrompt === undefined ? {} : { systemPrompt: this.options.buddySystemPrompt }),
