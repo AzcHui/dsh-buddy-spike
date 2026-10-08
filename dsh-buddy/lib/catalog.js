@@ -54,7 +54,7 @@ const FALLBACK_CATALOG_IDS = [
     'deepseek-v4.1-flash', 'deepseek-v4-pro',
     'glm-5.3', 'glm-5.3-flash', 'glm-5.2', 'glm-5.1', 'glm-5v-turbo',
     'kimi-k3-1', 'kimi-k2.8-preview', 'kimi-k2.7', 'kimi-k2.6',
-    'minimax-m3',
+    'minimax-m3', 'minimax-m2.7',
 ];
 
 /** 已知模型的人类可读名（新模型自动回退为 id 本身）。 */
@@ -74,13 +74,21 @@ const MODEL_NAMES = {
     'kimi-k2.7': 'Kimi-K2.7',
     'kimi-k2.6': 'Kimi-K2.6',
     'minimax-m3': 'MiniMax-M3',
+    'minimax-m2.7': 'minimax-m2.7',
     'hy4-preview': 'HY4-Preview',
     'hy4-preview-f': 'HY4-Preview-F',
     'hy3': 'HY3',
     'hy3-x': 'HY3-X',
 };
 
-/** 档位模型附用途描述（选择器里展示）。 */
+/**
+ * 档位模型附用途描述（选择器里展示）。
+ *
+ * 注：`fast-model` / `balanced-model` / `deep-model` 是 WorkBuddy 通道的档位别名，
+ * 在 **dsh 通道的 16 个权威清单里不存在**（10-08 实测，见全记录第十八章）。
+ * 这里只作历史遗留的元数据兜底——它们不会出现在正常刷新的目录里；
+ * 若日后 CLI 重新提供，会自动带上描述。
+ */
 const MODEL_DESCRIPTIONS = {
     'fast-model': '轻量快速，适合简单任务',
     'balanced-model': '速度与能力均衡的默认档',
