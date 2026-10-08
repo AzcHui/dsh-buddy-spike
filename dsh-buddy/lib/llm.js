@@ -15,7 +15,7 @@
  */
 import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm';
 import z from '@deepseek-ai/schemastery';
-import { getModelCatalog } from './catalog.js';
+import { getModelCatalog, setCatalogCliPath } from './catalog.js';
 
 const PROVIDER = 'codebuddy';
 
@@ -66,29 +66,46 @@ class CodeBuddyLlmAdapter extends LlmAdapter {
 export const name = 'buddy-llm-codebuddy';
 export const inject = ['llm'];
 
-/** 设置页命名空间（小写连字符标识符，ns 契约见 settings 包 installSection）。 */
+/**
+ * 设置页命名空间 = 本插件在 profile patch 里的条目 id（cordis.patch.yml 中
+ * `- id: buddy-llm-codebuddy`），rc.2 起 settings 服务按“配置条目 id”自动投影
+ * 命名空间，无需再手工注册。
+ */
 const SETTINGS_NS = 'buddy-llm-codebuddy';
 
-export const Config = z.object({});
+/**
+ * 本条目的 Config。
+ *
+ * dsh 0.2.0 的设置页只渲染 Config 中标记 `.volatile()` 的字段（volatile 语义 =
+ * 「热更不重启即可生效」，见 settings 包 volatileForm），且**空 schema 的命名空间
+ * 会被整条跳过** —— 那正是换心后「模型」页只剩 DeepSeek 卡片的原因。所以这里给一个
+ * 真实可用、且确实需要热更的字段：CodeBuddy CLI 可执行文件路径（默认走 PATH 解析，
+ * 非默认安装位置时填绝对路径；改完刷新即生效，无需重启 dsh）。
+ */
+export const Config = z.object({
+    cliPath: z.string().default('').volatile(),
+});
 
-export function apply(ctx) {
+export function apply(ctx, config) {
+    // 把设置页的 CLI 路径喂给目录刷新（llm.js 与 buddy-loop 是两个独立 dsh 条目，
+    // 各有 Config 命名空间；目录来源统一存在 catalog.js 里共享）。
+    const cliPath = typeof config?.cliPath === 'string' ? config.cliPath : '';
+    ctx.effect(() => {
+        setCatalogCliPath(cliPath);
+        return () => setCatalogCliPath('');
+    }, 'buddyLlmCodebuddy.cliPath');
+
     ctx.effect(
         () => {
             ctx.llm.registerAdapter([PROVIDER], new CodeBuddyLlmAdapter());
             // 可配置目录声明：设置页「模型」由此渲染 CodeBuddy 卡片
-            // （ModelsSection 只画 configured 行 = settingsNs 命名空间存在的路由）。
+            // （ModelsSection 把目录与“活的命名空间视图”join，行才会出现）。
             ctx.llm.registerConfigurableProviders([
                 { provider: PROVIDER, displayName: 'CodeBuddy', settingsNs: SETTINGS_NS, settingsPath: [] },
             ]);
         },
         'buddyLlmCodebuddy.registerAdapter(codebuddy)',
     );
-    // 装设置命名空间（空 schema：本提供方无需任何密钥/配置，走 CLI 登录态）。
-    // 无 llm.registerConfigurableProviders 时卡片不出现；无本节时命名空间不存在。
-    ctx.inject(['settings'], (settingsCtx) => {
-        settingsCtx.settings.installSection(ctx, SETTINGS_NS, Config, {}, {
-            setSource: () => {},
-            onChange: () => {},
-        });
-    });
+    // dsh 0.2.0 起 settings 服务不再提供 installSection：命名空间由“配置条目 id +
+    // 插件 Config 中的 volatile 字段”自动投影（见 Config 上方注释），此处无需再注册。
 }

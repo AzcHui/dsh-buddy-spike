@@ -17,6 +17,19 @@
 import { spawn } from 'node:child_process';
 import { buddyLog } from './log.js';
 
+/**
+ * 运行时 CLI 可执行文件路径（设置页 buddy-llm-codebuddy.cliPath，留空=按 PATH 找
+ * `codebuddy`）。llm.js 装载时从自身 Config 注入；显式传给 refreshCatalogFromCli
+ * 的值优先。存这里而非读配置文件，是为了让 llm.js / buddy-loop 两个 dsh 条目
+ * （各自独立 Config 命名空间）共用同一份目录来源。
+ */
+let runtimeCliPath = '';
+
+/** 注入 CLI 路径（llm.js apply 时调用；传 falsy 即回落到 PATH 解析）。 */
+export function setCatalogCliPath(value) {
+    runtimeCliPath = typeof value === 'string' ? value.trim() : '';
+}
+
 /** 兜底目录（codebuddy --help，2026-09-24 实测）。 */
 const FALLBACK_CATALOG_IDS = [
     'fast-model', 'balanced-model', 'deep-model',
@@ -105,8 +118,13 @@ export function applyCatalogIds(ids) {
  * 跑 `codebuddy --help` 并解析 --model 行的官方支持清单，更新目录。
  * 永不 reject：CLI 缺失/超时/解析失败都返回 { ok: false, reason }，
  * 目录保持现值（控制台手动刷新时把 reason 回给用户）。
+ *
+ * @param options.cliPath 显式 CLI 可执行文件路径（设置页 buddy-llm-codebuddy.cliPath）；
+ *   留空则按 PATH 解析 `codebuddy`。
  */
-export function refreshCatalogFromCli({ timeoutMs = 20000 } = {}) {
+export function refreshCatalogFromCli({ timeoutMs = 20000, cliPath = '' } = {}) {
+    const explicit = typeof cliPath === 'string' ? cliPath.trim() : '';
+    const executable = explicit !== '' ? explicit : (runtimeCliPath !== '' ? runtimeCliPath : 'codebuddy');
     return new Promise((resolve) => {
         let settled = false;
         const done = (result) => {
@@ -116,7 +134,7 @@ export function refreshCatalogFromCli({ timeoutMs = 20000 } = {}) {
         };
         let child;
         try {
-            child = spawn('codebuddy', ['--help'], { shell: true, windowsHide: true });
+            child = spawn(executable, ['--help'], { shell: true, windowsHide: true });
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
             buddyLog('model-catalog-refresh-failed', { reason });
