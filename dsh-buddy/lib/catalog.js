@@ -43,14 +43,18 @@ export function setCatalogCliPath(value) {
  * ⚠️ 取证纪律：这份清单必须来自 **dsh 进程的环境**（用户终端），不能用
  * WorkBuddy/IDE 里测的结果。原因：`codebuddy --help` 的清单按登录态下发，
  * `CODEBUDDY_CONFIG_DIR` / `CLIENT_INFO_PRODUCT_VERSION` 会改变它——
- * WorkBuddy 通道下是 19 个（含 space-bunny），dsh 通道下是 16 个（无 space-bunny）。
- * 详见《换心手术全记录.md》第十八章。
+ * WorkBuddy 通道下是 19 个，dsh 通道下是 17 个（详见《换心手术全记录.md》第十九章）。
+ *
+ * ⚠️ 另一个纪律：**清单随 CLI 版本变化**。2.156.0 时代 dsh 通道只有 16 个且无
+ * `space-bunny`；升到 2.162.0 后变为 17 个并含 `space-bunny`（第二十章 A/B 实测）。
+ * 所以升级 CLI 后要重新采样，不能沿用旧清单。
  *
  * 兜底只在 CLI 不可达/解析失败时兜一下，很快会被刷新结果覆盖；
- * 它不追求完整，追求"在 dsh 环境下确实可用"。
+ * 它不追求完整，追求"在当前 dsh 环境下确实可用"。
  */
 const FALLBACK_CATALOG_IDS = [
-    'hy4-preview-f', 'hy3', 'hy3-x',
+    'hy4-preview', 'hy3', 'hy3-x',
+    'space-bunny',
     'deepseek-v4.1-flash', 'deepseek-v4-pro',
     'glm-5.3', 'glm-5.3-flash', 'glm-5.2', 'glm-5.1', 'glm-5v-turbo',
     'kimi-k3-1', 'kimi-k2.8-preview', 'kimi-k2.7', 'kimi-k2.6',

@@ -50,26 +50,41 @@ CLIENT_INFO_PRODUCT_VERSION  客户端版本标识
 
 ## 「升级依赖能不能解决问题」前置检查
 
-问"升级 X 能不能拿到 Y"时，**先判定 Y 是本地静态还是服务端动态**——这决定升级有没有意义。
+问"升级 X 能不能拿到 Y"时，**先判定 Y 是本地静态还是服务端动态**。
 
 CodeBuddy 实例（10-08 实测）：模型清单**由服务端按账号通道下发**。
 
 ```
 --help 的 "Currently supported:(...)"
   └─ 只是把远端结果打印出来，不是本地写死的清单
-     真实来源：productManager.waitConfiguration() → $dataFolderName/cache/acc-product-config-v3.json
-     通道由 CODEBUDDY_CONFIG_DIR 决定（~/.workbuddy = WorkBuddy 通道，copilot.tencent.com = 独立 codebuddy 通道）
+     真实来源：<endpoint>/v3/config → $dataFolderName/local_storage/entry_*.info
+     通道由 CODEBUDDY_CONFIG_DIR 决定
 ```
 
-所以：**升级 CLI 不会改变通道，也拿不到别的通道才有的模型/能力。**
+**⚠️ 但"远端动态"不等于"版本无关"（这条我们踩过）**
 
-查清单类问题的正确姿势（读压缩产物）：
+10-08 曾据"清单在服务端"推断"升级 CLI 没用"，**实测被推翻**：升级 2.156.0 → 2.162.0 后，
+dsh 环境从 16 个（无 `space-bunny`）变成 17 个（**有** `space-bunny`）。
 
-```bash
-grep -o "async updateModelOptionDescription.\{0,900\}" dist/codebuddy.js
-```
+根因：**旧版请求 `/v3/config` 被服务端拒（400）**，只能回落到过期磁盘缓存；新版请求成功。
+服务端完全可能按客户端版本区别对待。
 
-**宿主差异陷阱**：CHANGELOG 里出现 `unopted 宿主（WorkBuddy）` 这类表述——同一份 CLI 会因宿主不同走不同分支。换心时遇到"莫名行为不一致"，先查是否有宿主分叉。
+**所以正确的判定是二维的：版本 × 环境，两者独立影响结果。**
+
+| | dsh 环境 | WorkBuddy 环境 |
+|---|---|---|
+| 旧 2.156.0 | 16 ❌ | 19 ✅ |
+| 新 2.162.0 | 17 ✅ | 19 ✅ |
+
+**排障动作：**
+
+1. 先看 CLI 日志有没有 `Fetch remote configuration failed: status code 4xx` +
+   `[DiskCacheFallback] disk cache hit` —— 有就说明在吃过期缓存，**升级很可能有效**。
+2. 别靠推理排除版本因素，**做 A/B**（旧版目录在新版安装后常残留，正好当对照组）。
+3. 升级要用 nvm 对应版本的 npm，别用 PATH 里的（可能是 IDE 沙箱的，会装错地方）。
+
+**宿主差异陷阱**：CHANGELOG 里出现 `unopted 宿主（WorkBuddy）` 这类表述——同一份 CLI 会因
+宿主不同走不同分支。遇到"莫名行为不一致"，先查是否有宿主分叉。
 
 ## 修复后纪律
 
