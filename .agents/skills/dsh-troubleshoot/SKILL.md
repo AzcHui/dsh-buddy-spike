@@ -48,6 +48,29 @@ CLIENT_INFO_PRODUCT_VERSION  客户端版本标识
 3. **定位手法**：把被测进程的环境缩到最小（`SystemRoot`/`PATH`/`APPDATA` 等），确认能复现；再用 **ddmin（delta debugging）** 在 187 个变量里缩到最小致因集——普通二分在非单调情况下会给假阳性。
 4. **别急着改代码。** 先证明"差异是稳定的"，再判断是 bug 还是环境差异。否则会把环境问题修成代码补丁，越修越歪。
 
+## 「升级依赖能不能解决问题」前置检查
+
+问"升级 X 能不能拿到 Y"时，**先判定 Y 是本地静态还是服务端动态**——这决定升级有没有意义。
+
+CodeBuddy 实例（10-08 实测）：模型清单**由服务端按账号通道下发**。
+
+```
+--help 的 "Currently supported:(...)"
+  └─ 只是把远端结果打印出来，不是本地写死的清单
+     真实来源：productManager.waitConfiguration() → $dataFolderName/cache/acc-product-config-v3.json
+     通道由 CODEBUDDY_CONFIG_DIR 决定（~/.workbuddy = WorkBuddy 通道，copilot.tencent.com = 独立 codebuddy 通道）
+```
+
+所以：**升级 CLI 不会改变通道，也拿不到别的通道才有的模型/能力。**
+
+查清单类问题的正确姿势（读压缩产物）：
+
+```bash
+grep -o "async updateModelOptionDescription.\{0,900\}" dist/codebuddy.js
+```
+
+**宿主差异陷阱**：CHANGELOG 里出现 `unopted 宿主（WorkBuddy）` 这类表述——同一份 CLI 会因宿主不同走不同分支。换心时遇到"莫名行为不一致"，先查是否有宿主分叉。
+
 ## 修复后纪律
 
 修完清掉取证日志；把根因和修复写进《换心手术全记录.md》对应章节，不写"神秘消失的自愈"。
