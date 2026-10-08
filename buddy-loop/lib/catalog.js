@@ -87,9 +87,27 @@ function buildCatalog(ids) {
 /** 当前目录（module 单例；刷新后整体替换）。 */
 let current = buildCatalog(FALLBACK_CATALOG_IDS);
 
+/**
+ * 曾被 CLI 确认存在过的模型 id（单调累积，永不删除）。
+ *
+ * CodeBuddy 的 `--model` 官方清单来自远端，会因灰度/缓存出现**抖动**：同一台机器
+ * 不同时刻可能拿到新清单或旧清单（2026-10-08 实测：连续 4 次稳定 19 个含
+ * space-bunny，但用户重启 dsh 的那次刷到 16 个旧清单）。若直接按单次结果替换，
+ * 一次抖动就会把新模型从选择器里抹掉，用户看到"模型又少了"。
+ *
+ * 所以策略是：id 累积不清；CLI 本次没提到的历史 id 保留在目录中，但记为
+ * `stale`（UI 仍可见、可选，只是不保证当下可路由）。CLI 重新提到时自动转正。
+ */
+const seenIds = new Set(FALLBACK_CATALOG_IDS);
+
 /** 读当前目录（消费方请勿改写返回值）。 */
 export function getModelCatalog() {
     return current;
+}
+
+/** CLI 本次未提到、但历史上确认过的 id → 不再删除，只标记 stale。 */
+function staleIds(present) {
+    return [...seenIds].filter((id) => !present.has(id));
 }
 
 /**
@@ -97,11 +115,19 @@ export function getModelCatalog() {
  * @returns {{ changed: boolean, added: string[], removed: string[], catalog: Array }}
  */
 export function applyCatalogIds(ids) {
-    const next = buildCatalog(ids);
-    if (next.length === 0) {
+    const fresh = buildCatalog(ids);
+    if (fresh.length === 0) {
         // CLI 给出空清单视为异常输出，拒绝替换（保底目录继续服务）。
         return { changed: false, added: [], removed: [], catalog: current };
     }
+    const present = new Set(fresh.map((model) => model.id));
+    // 抖动保护：历史见过但本次没提到的 id 不删除，只降级为 stale。
+    const dropped = staleIds(present);
+    const next = dropped.length === 0
+        ? fresh
+        : [...fresh, ...buildCatalog(dropped).map((model) => ({ ...model, stale: true }))];
+    for (const id of present) seenIds.add(id);
+
     const before = new Set(current.map((model) => model.id));
     const after = new Set(next.map((model) => model.id));
     const added = next.filter((model) => !before.has(model.id)).map((model) => model.id);
@@ -109,7 +135,10 @@ export function applyCatalogIds(ids) {
     const changed = added.length > 0 || removed.length > 0;
     if (changed) {
         current = next;
-        buddyLog('model-catalog-updated', { count: next.length, added, removed });
+        buddyLog('model-catalog-updated', { count: next.length, added, removed, stale: dropped });
+    } else {
+        // 清单相同也要刷新 stale 标记（CLI 可能把某模型转正回来）。
+        current = next;
     }
     return { changed, added, removed, catalog: current };
 }

@@ -89,6 +89,8 @@ window.__ModuleLoader__.load({
                 ...entries.map((entry) => ({
                     value: entry.id,
                     label: entry.name === entry.id ? entry.id : `${entry.name}（${entry.id}）`,
+                    // stale = CLI 本次清单未列出（远端抖动/灰度），保留可选但如实标注。
+                    ...(entry.stale === true ? { label: `${entry.name === entry.id ? entry.id : `${entry.name}（${entry.id}）`} — CLI 当前未列出` } : {}),
                 })),
                 { value: CUSTOM_MODEL, label: "自定义…（手输模型 ID）" },
             ];

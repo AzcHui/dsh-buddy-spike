@@ -38,7 +38,12 @@ class CodeBuddyLlmAdapter extends LlmAdapter {
             provider: PROVIDER,
             id: model.id,
             name: model.name,
-            ...(model.description === undefined ? {} : { description: model.description }),
+            // stale 模型（CLI 本次清单没提到，见 catalog.js 抖动保护）：保留可见可选，
+            // 但在描述里如实告知，避免用户以为已下架。dsh 注册表会剥离未知字段，
+            // 所以提示只能走 description。
+            description: model.stale === true
+                ? `${model.description ?? ''}（CLI 当前清单未列出，可能暂不可用）`.trim()
+                : model.description,
             inputModalities: ['text'],
         }));
     }
@@ -53,11 +58,14 @@ class CodeBuddyLlmAdapter extends LlmAdapter {
             throw new LlmError(`unknown provider route "${provider}"`, 'UNKNOWN_PROVIDER');
         }
         const entry = getModelCatalog().find((item) => item.id === model);
+        const description = entry?.stale === true
+            ? `${entry?.description ?? ''}（CLI 当前清单未列出，可能暂不可用）`.trim()
+            : entry?.description;
         return {
             provider: PROVIDER,
             id: model,
             name: entry?.name ?? model,
-            ...(entry?.description === undefined ? {} : { description: entry.description }),
+            ...(description === undefined ? {} : { description }),
             inputModalities: ['text'],
         };
     }
