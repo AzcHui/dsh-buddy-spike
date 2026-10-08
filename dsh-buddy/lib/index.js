@@ -16,7 +16,6 @@
  * so it stays open for the agent's lifetime and closes in dispose.
  */
 import { Service } from '@deepseek-ai/cordis';
-import { emitAgentEvent } from '@deepseek-ai/dsh-agent';
 import { SessionLogOffset, SessionPreparation, interruptedTurnClosers } from '@deepseek-ai/dsh-session';
 import z from '@deepseek-ai/schemastery';
 import { BuddyAgent } from './agent.js';
@@ -138,7 +137,7 @@ var BuddyLoop = class BuddyLoop extends Service {
                 const setupResult = await options.setup?.(provisional.ctx, provisional);
                 setupResult?.commit?.();
                 await this._appendUnstoredSuffix(stored, session);
-                return this._publishBuilt(loopCtx, id, provisional, options.parentAgent, stored, 'startup');
+                return await this._publishBuilt(loopCtx, id, provisional, options.parentAgent, stored, 'startup');
             } catch (error) {
                 try { provisional.cancel({ kind: 'disposed' }); } catch { /* containment */ }
                 try { await provisional.scope.dispose(); } catch { /* containment */ }
@@ -151,13 +150,17 @@ var BuddyLoop = class BuddyLoop extends Service {
         }
     }
 
-    /** Announce an already-constructed driver and attach its dispose. */
-    _publishBuilt(loopCtx, id, agent, parentAgent, stored, source) {
+    /**
+     * Announce an already-constructed driver and attach its dispose.
+     * rc.2 起 agents.announce(agent, source) 变异步并串行发 `agent/created`
+     * （取代同步 emitAgentEvent + `agent/session-start`）；await 保证
+     * 创建监听器失败能走上方 rollback（close handle + dispose preparation）。
+     */
+    async _publishBuilt(loopCtx, id, agent, parentAgent, stored, source) {
         const detachSession = agent.ctx.sessions.enter(agent.session);
         const detachAgent = loopCtx.agents.enter(agent, parentAgent);
         agent.ctx.sessions.announce(agent.session);
-        loopCtx.agents.announce(agent);
-        emitAgentEvent(loopCtx, agent, 'agent/session-start', { source });
+        await loopCtx.agents.announce(agent, source);
         let disposed = false;
         const dispose = async () => {
             if (disposed) return;
@@ -214,7 +217,7 @@ var BuddyLoop = class BuddyLoop extends Service {
                 const setupResult = await options.setup?.(provisional.ctx, provisional);
                 setupResult?.commit?.();
                 await this._appendUnstoredSuffix(stored, session);
-                return this._publishBuilt(loopCtx, id, provisional, options.parentAgent, stored, 'resume');
+                return await this._publishBuilt(loopCtx, id, provisional, options.parentAgent, stored, 'resume');
             } catch (error) {
                 try { provisional.cancel({ kind: 'disposed' }); } catch { /* containment */ }
                 try { await provisional.scope.dispose(); } catch { /* containment */ }
