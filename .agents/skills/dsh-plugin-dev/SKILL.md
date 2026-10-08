@@ -18,6 +18,7 @@ description: 开发 dsh (deepseek-harness) 插件的最短路径。当用户要�
 2. **插件/client 模块 id === npm 包名**。dsh 按包名严格校验注册，id 不符 → Web UI 报 `Failed to load plugins ... loaded without registering "xxx"`。
 3. **patch 替换整行 config，不深度合并**。覆盖上层配置必须重述该行全部键。
 4. **层叠顺序**：bundles 按加入序（先 @deepseek-ai/dsh-base）→ profile 自身 cordis.patch.yml → `$DSH_HOME/cordis.patch.yml` → `--patch` argv 序；**后应用层按行胜出**。
+5. **想出现在设置页？Config 里至少留一个 `.volatile()` 字段**（dsh ≥0.2.0）。设置页只渲染 volatile 字段，且 `volatileForm()` 对空 object 返回 `undefined` 会把整个命名空间跳过 → **插件静默隐身，无任何报错**。命名空间 = patch 里的条目 id，不再手工 `installSection()`。
 
 ## 安装与分发
 
