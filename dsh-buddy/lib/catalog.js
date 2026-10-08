@@ -5,14 +5,21 @@
  * 下拉框）各自硬编码一份模型清单（同出 2026-09 的 `codebuddy --help`
  * 实测），物理重复、改一处忘一处，且 CLI 升级换清单后两处都会过时。
  *
+ /**
  * 收敛到本模块后：
  *   - 默认清单 = 硬编码兜底（CLI 不可达时保证可用）；
  *   - `refreshCatalogFromCli()`（启动时自动一次 + 控制台手动刷新）：
  *     跑 `codebuddy --help`，解析 `--model` 行的
- *     `Currently supported: (a, b, c...)`，与现值比对；有增删则原子
- *     替换目录并落黑匣子 `model-catalog-updated`；解析失败沿用现值。
+ *     `Currently supported: (a, b, c...)`，与现值比对；有增删则更新目录并落黑匣子
+ *     `model-catalog-updated`；解析失败沿用现值。
  *   - 消费方：lib/llm.js（listModels/resolveModel）、lib/config.js
  *    （路由 GET/刷新端点）→ 控制台经 HTTP 动态取，浏览器侧零硬编码。
+ *
+ * ⚠️ 取证纪律（10-08 踩坑，见《换心手术全记录.md》第十八章）：本模块解析的清单
+ * **取决于调用进程的环境**。`codebuddy --help` 会按登录态下发不同清单，
+ * `CODEBUDDY_CONFIG_DIR` / `CLIENT_INFO_PRODUCT_VERSION` 是关键变量。
+ * 手工验证或写兜底清单时，**必须在 dsh 自身环境（用户终端）下取证**，
+ * 不要用 WorkBuddy/IDE 子进程的结果——那是另一个通道的清单。
  */
 import { spawn } from 'node:child_process';
 import { buddyLog } from './log.js';
@@ -30,13 +37,24 @@ export function setCatalogCliPath(value) {
     runtimeCliPath = typeof value === 'string' ? value.trim() : '';
 }
 
-/** 兜底目录（codebuddy --help，2026-09-24 实测）。 */
+/**
+ * 兜底目录（codebuddy --help，2026-10-08 在 **dsh 自身环境**下实测）。
+ *
+ * ⚠️ 取证纪律：这份清单必须来自 **dsh 进程的环境**（用户终端），不能用
+ * WorkBuddy/IDE 里测的结果。原因：`codebuddy --help` 的清单按登录态下发，
+ * `CODEBUDDY_CONFIG_DIR` / `CLIENT_INFO_PRODUCT_VERSION` 会改变它——
+ * WorkBuddy 通道下是 19 个（含 space-bunny），dsh 通道下是 16 个（无 space-bunny）。
+ * 详见《换心手术全记录.md》第十八章。
+ *
+ * 兜底只在 CLI 不可达/解析失败时兜一下，很快会被刷新结果覆盖；
+ * 它不追求完整，追求"在 dsh 环境下确实可用"。
+ */
 const FALLBACK_CATALOG_IDS = [
-    'fast-model', 'balanced-model', 'deep-model',
+    'hy4-preview-f', 'hy3', 'hy3-x',
+    'deepseek-v4.1-flash', 'deepseek-v4-pro',
     'glm-5.3', 'glm-5.3-flash', 'glm-5.2', 'glm-5.1', 'glm-5v-turbo',
-    'deepseek-v4-pro', 'deepseek-v4.1-flash',
     'kimi-k3-1', 'kimi-k2.8-preview', 'kimi-k2.7', 'kimi-k2.6',
-    'minimax-m3', 'hy4-preview', 'hy4-preview-f', 'hy3', 'hy3-x',
+    'minimax-m3',
 ];
 
 /** 已知模型的人类可读名（新模型自动回退为 id 本身）。 */
@@ -90,13 +108,13 @@ let current = buildCatalog(FALLBACK_CATALOG_IDS);
 /**
  * 曾被 CLI 确认存在过的模型 id（单调累积，永不删除）。
  *
- * CodeBuddy 的 `--model` 官方清单来自远端，会因灰度/缓存出现**抖动**：同一台机器
- * 不同时刻可能拿到新清单或旧清单（2026-10-08 实测：连续 4 次稳定 19 个含
- * space-bunny，但用户重启 dsh 的那次刷到 16 个旧清单）。若直接按单次结果替换，
- * 一次抖动就会把新模型从选择器里抹掉，用户看到"模型又少了"。
+ * 保护对象是**真实抖动**与 **CLI 升级换清单**：一旦拿到新清单，旧的 id 就永久
+ * 记住；后续 CLI 本次没提到的历史 id 不删除，只降级为 `stale`（UI 仍可见、可选，
+ * 描述里如实标注"CLI 当前清单未列出"）。CLI 重新提到时自动转正。
  *
- * 所以策略是：id 累积不清；CLI 本次没提到的历史 id 保留在目录中，但记为
- * `stale`（UI 仍可见、可选，只是不保证当下可路由）。CLI 重新提到时自动转正。
+ * ⚠️ 不要把它当成"环境差异"的补丁（10-08 曾误判，见全记录第十八章）：若差异来自
+ * `CODEBUDDY_CONFIG_DIR` 等环境变量导致两个通道清单不同，那是两个**各自正确**的
+ * 权威清单，不是抖动，不该靠累积掩盖。本模块只处理"同一环境下结果时多时少"。
  */
 const seenIds = new Set(FALLBACK_CATALOG_IDS);
 
