@@ -28,6 +28,9 @@ description: dsh 运行异常四步排障流程 + 环境陷阱清单。当 dsh �
 | CLI resume 挂死 | 一直"思考中"无任何输出 | resume 不存在的转录**静默挂死不报错**；前置校验转录文件 +60s 看门狗（已内建） |
 | 装插件不生效 | 新插件没出现 | bundle 列表启动时快照，**装完必须重启 dsh** |
 | PowerShell 工具输出空 | 连进程计数都拿不到 | 换 Bash 工具执行 |
+| **`link:` 依赖不落地** | 装插件后报 `cannot resolve profile bundle "x"`，`node_modules` 里什么都没有 | pnpm v11 + `nodeLinker: hoisted` 下 `link:` 顶层链接不落地（**已复现 3 次**）。官方提示的 `dsh plugin --profile <p> install` 也无效（只回 `Already up to date`）。**改用 tarball**：`pnpm pack` → `dsh plugin --profile <p> add <xxx.tgz>`，`file:` 协议走真实文件复制 |
+| 桌面端 CLI 拒绝组层 | `dsh --profile desktop --dump-config` 报 `managed exclusively by the Electron application` | 设计如此：Desktop 的 CLI 只被允许用 `plugin` 子命令管包，**不能 boot** 该 profile。验证只能靠实际启动 |
+| 桌面端"退出"未生效 | 装插件报 profile 被占用 | **关窗口只是隐藏**，必须右键托盘 → 退出（README：Electron 独占 profile 生命周期锁） |
 | **对照环境污染** | 在 agent/IDE 里测出的结果 ≠ dsh 的结果，误判为"抖动" | 见下方专项，**最高频误判源** |
 
 ## 对照环境污染（10-08 血泪，建议单独记）
